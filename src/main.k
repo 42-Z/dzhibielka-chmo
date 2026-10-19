@@ -50,6 +50,8 @@ main() {
     if !pic_exists("menu") fprintf(stderr, "В %s нет баннеров — экраны будут без картинок\n", tg_pics);
     if !db_connect(need_env("DATABASE_URL")) return 1;
     if !db_schema(env_or("SCHEMA_FILE", "sql/schema.sql")) return 1;
+    nav_dirty = 1;  // после перезапуска сверяем навигационный пост со справочником
+    nav_flush();
 
     // Telegram не даёт боту писать первым: админ, не нажимавший /start, карточек не получит.
     for i = 0 i < cfg_admin_n i++ {
@@ -76,6 +78,7 @@ main() {
             upd = json_array_get(updates, i);
             id = jint(upd, "update_id");
             handle_update(upd);
+            nav_flush();  // пост в канале сверяем до того, как update подтвердится
             if id >= offset offset = id + 1;
             arena_reset();
         }

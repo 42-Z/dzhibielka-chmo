@@ -90,3 +90,12 @@ CREATE TABLE IF NOT EXISTS cards (
     message_id  bigint NOT NULL,
     PRIMARY KEY (request_id, admin_id)
 );
+
+-- Навигационный пост в канале со списком хэштегов. Длинный список делится на части (лимит
+-- Telegram 4096 символов); body — текст последней отправки, по нему бот не делает лишних правок.
+CREATE TABLE IF NOT EXISTS nav_posts (
+    part        int PRIMARY KEY,
+    chat        text NOT NULL,                 -- CHANNEL_ID, для которого собран пост
+    message_id  bigint NOT NULL,
+    body        text NOT NULL DEFAULT ''
+);

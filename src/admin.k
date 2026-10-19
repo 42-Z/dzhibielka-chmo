@@ -372,6 +372,7 @@ approve_work(admin, rid) {
     sb_int(q, rid);
     db_exec(sb_str(q));
     if !db_commit() fprintf(stderr, "Пост опубликован (сообщение %lld), но запись в БД не сохранилась\n", mid);
+    nav_dirty = 1;  // новые художник и братухи могли попасть в справочник
     0;
 }
 
@@ -391,6 +392,7 @@ ent_approve(rid, admin) {
         return 0;
     }
     db_commit();
+    nav_dirty = 1;  // справочник изменился: навигационный пост обновится после этого update
     rq_load(rid);
     if r_user != admin notify_user(rid);
     cards_refresh(rid);

@@ -154,6 +154,43 @@ tg_delete(chat, mid) {
     root != 0;
 }
 
+// Вызовы для канала CHANNEL_ID. Он бывает «@имя», а tg_send переводит chat в число, поэтому
+// здесь chat_id передаётся строкой.
+tg_chan_send(html) {
+    auto req;
+    auto root;
+    auto id;
+    req = jsets(jo(), "chat_id", cfg_channel);
+    jsets(req, "text", html);
+    jsets(req, "parse_mode", "HTML");
+    jset(req, "link_preview_options", jsetb(jo(), "is_disabled", 1));
+    root = tg_post("sendMessage", req, 15);
+    if !root return 0;
+    id = jint(jget(root, "result"), "message_id");
+    json_release(root);
+    id;
+}
+
+// Истина, если Telegram принял правку текста сообщения в канале.
+tg_chan_edit(mid, html) {
+    auto req;
+    auto root;
+    req = jseti(jsets(jo(), "chat_id", cfg_channel), "message_id", mid);
+    jsets(req, "text", html);
+    jsets(req, "parse_mode", "HTML");
+    jset(req, "link_preview_options", jsetb(jo(), "is_disabled", 1));
+    root = tg_post("editMessageText", req, 15);
+    json_release(root);
+    root != 0;
+}
+
+tg_chan_delete(mid) {
+    auto root;
+    root = tg_post("deleteMessage", jseti(jsets(jo(), "chat_id", cfg_channel), "message_id", mid), 15);
+    json_release(root);
+    root != 0;
+}
+
 // Отвечает на нажатие кнопки (text можно передать 0); без ответа кнопка «крутится».
 tg_ack(cbid, text) {
     auto req;

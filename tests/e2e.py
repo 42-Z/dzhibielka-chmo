@@ -1280,6 +1280,92 @@ def banners_missing(c):
     check(WORLD.uploads == [], "ничего не загружалось")
 
 
+def nav_messages():
+    """Части навигационного поста в канале, которые ещё не удалены."""
+    return [m for (chat, _), m in sorted(WORLD.messages.items(), key=lambda kv: kv[0][1])
+            if chat == str(CHANNEL) and m["method"] == "sendMessage" and not m["deleted"]]
+
+
+def propose_hero(c, uid, name, photo):
+    """Работа с новой братухой: она уйдёт админам отдельной карточкой."""
+    c.say(uid, "/start")
+    c.press(uid, "Предложить работу")
+    c.photo(uid, photo)
+    c.press(uid, "Дальше")
+    c.pick(uid, "Мария Рисунок")
+    c.press(uid, "Дальше")
+    c.press(uid, "Нет в списке")
+    c.say(uid, name)
+    c.press(uid, "Дальше")
+    c.press(uid, "Пропустить")
+    c.press(uid, "Остаться анонимом")
+    c.press(uid, "Отправить на проверку")
+
+
+@scenario
+def nav_post(c):
+    c.start()
+    seed_basic(c)
+    # 400 братух не влезут в одно сообщение: пост делится на части
+    c.seed(characters=[("Братуха номер %d" % i, "") for i in range(1, 401)])
+
+    c.say(USER, "/start")
+    check(not any("Навигация" in b for b in c.buttons(c.last_panel(USER))), "у отправителя нет кнопки навигации")
+    c.press_data(USER, "n:make")
+    check("админов" in last_alert(c), "чужая кнопка навигации: %r" % last_alert(c))
+    check(c.channel_posts() == [], "отправитель пост не создаёт")
+
+    # кнопка создаёт пост, части записаны в БД
+    c.say(ADMIN1, "/start")
+    c.press(ADMIN1, "Навигация")
+    check("Поста в канале нет" in c.last_panel(ADMIN1)["text"], "экран без поста")
+    c.press(ADMIN1, "Создать")
+    parts = nav_messages()
+    check(len(parts) >= 2, "длинный список разбит на части: %d" % len(parts))
+    all_text = "\n".join(m["text"] for m in parts)
+    for needle in ("#Мария_Рисунок", "#Борис", "#Санька_Штормовой", "#Лёнька", "#Валенка",
+                   "#Братуха_номер_1 ", "#Братуха_номер_400"):
+        check(needle in all_text, "в посте нет %r" % needle)
+    check(all(len(m["text"]) < 4096 for m in parts), "части короче лимита Telegram")
+    check(c.pg.query("SELECT count(*) FROM nav_posts")[0][0] == len(parts), "части записаны в nav_posts")
+
+    # обновление без изменений: сообщения на месте, новых не появляется
+    c.press(ADMIN1, "Обновить")
+    check(len(nav_messages()) == len(parts), "обновление без изменений не плодит части")
+
+    # одобрение новой братухи правит пост, а не отправляет новый
+    propose_hero(c, USER, "Новый Герой Навигации", "PH20")
+    edits_before = len(c.sent("editMessageText", CHANNEL))
+    c.say(ADMIN1, "/start")
+    c.press(ADMIN1, "Навигация")
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Новый Герой Навигации"))
+    check("#Новый_Герой_Навигации" in "\n".join(m["text"] for m in nav_messages()), "новая братуха в посте")
+    check(len(c.sent("editMessageText", CHANNEL)) > edits_before, "после одобрения пост правится")
+
+    # сообщение удалили в канале вручную: «Обновить» отправляет часть заново
+    with WORLD.lock:
+        nav_messages()[0]["deleted"] = True
+    c.say(ADMIN1, "/start")
+    c.press(ADMIN1, "Навигация")
+    c.press(ADMIN1, "Обновить")
+    check("#Борис" in "\n".join(m["text"] for m in nav_messages()), "удалённая часть отправлена заново")
+
+    # «Удалить» убирает все части и записи о них
+    c.press(ADMIN1, "Удалить")
+    check(all(m["deleted"] for (chat, _), m in WORLD.messages.items()
+              if chat == str(CHANNEL) and m["method"] == "sendMessage"), "части удалены из канала")
+    check(c.pg.query("SELECT count(*) FROM nav_posts")[0][0] == 0, "записи о частях удалены")
+    check("Поста в канале нет" in c.last_panel(ADMIN1)["text"], "экран без поста после удаления")
+
+    # без поста одобрение братухи ничего в канале не создаёт
+    propose_hero(c, USER2, "Тайный Герой", "PH21")
+    before = len(c.channel_posts())
+    c.say(ADMIN1, "/start")
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Тайный Герой"))
+    check(len(c.channel_posts()) == before, "без поста автообновление ничего не создаёт")
+    check(c.pg.query("SELECT count(*) FROM nav_posts")[0][0] == 0, "записей о посте нет")
+
+
 def main():
     binary = sys.argv[1]
     only = set(sys.argv[2:])

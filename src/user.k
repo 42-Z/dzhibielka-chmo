@@ -641,7 +641,7 @@ on_message(msg) {
     reshow(uid);
 }
 
-// Нажатие кнопки: m: — меню, w: — мастер, a: — решения админа.
+// Нажатие кнопки: m: — меню, w: — мастер, a: — решения админа, n: — навигационный пост.
 on_callback(cb) {
     auto from;
     auto uid;
@@ -657,5 +657,6 @@ on_callback(cb) {
     if s_starts(data, "m:") return on_menu(uid, cbid, data + 2);
     if s_starts(data, "w:") return on_wizard(uid, cbid, data + 2);
     if s_starts(data, "a:") return on_admin(uid, cbid, data + 2);
+    if s_starts(data, "n:") return on_nav(uid, cbid, data + 2);
     tg_ack(cbid, 0);
 }

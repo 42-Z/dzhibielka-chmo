@@ -8,6 +8,7 @@
 //   m:<что>               главное меню (work, artist, hero, mine, rules, home)
 //   w:<действие>:<заявка>[:<аргумент>]   шаги мастера заявки
 //   a:<действие>:<заявка>                решения админа
+//   n:<действие>                         навигационный пост в канале (только админ)
 //
 // Состояния мастера (users.state):
 //   работа:   w_media w_artist w_aname w_alink w_chars w_cnew w_caption w_credit w_review w_edit
@@ -153,6 +154,7 @@ show_menu(uid, fresh) {
     kb_row1(kb, btn_cb("🖼 Предложить работу", "m:work"));
     kb_row2(kb, btn_cb("🎨 Предложить художника", "m:artist"), btn_cb("👤 Предложить братуху", "m:hero"));
     kb_row2(kb, btn_cb("📋 Мои заявки", "m:mine"), btn_cb("ℹ️ Правила", "m:rules"));
+    if is_admin(uid) kb_row1(kb, btn_cb("📍 Навигация", "n:show"));
     panel_pic(uid, "menu", "Здарова, братуха! 👋\n\nЭто предложка канала <b>42 CONFESSION</b>. Присылай арты и творчество про 42 братух — админ проверит, и бот выложит всё в канал.\n\nЧто делаем?", kb, fresh);
 }
 

@@ -1,7 +1,7 @@
 BIN    := build/tgbot
 # Модулей в Kiva нет: перечисленные файлы склеиваются в один исходник.
 SRCS   := src/core.k src/json.k src/db.k src/tg.k src/model.k src/post.k src/ui.k \
-          src/wizard.k src/user.k src/admin.k src/inline.k src/main.k
+          src/wizard.k src/nav.k src/user.k src/admin.k src/inline.k src/main.k
 GLUED  := build/bot.k
 IR     := build/tgbot.ir
 KIVAC  := .kiva/bin/kivac
