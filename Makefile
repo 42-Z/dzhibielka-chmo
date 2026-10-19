@@ -29,7 +29,7 @@ $(BIN): $(GLUED) $(KIVAC)
 	test -x $@
 
 run: $(BIN)
-	@set -a; [ ! -f .env ] || . ./.env; set +a; exec $(BIN)
+	@scripts/run.sh $(BIN)
 
 test: $(BIN)
 	uv run --script tests/e2e.py $(BIN)
