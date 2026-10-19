@@ -145,3 +145,14 @@ tg_ack(cbid, text) {
     json_release(root);
     root != 0;
 }
+
+// То же, но текст показывается окном с кнопкой «ОК», а не всплывающей строкой: длинное
+// объяснение за пару секунд не прочитать.
+tg_alert(cbid, text) {
+    auto req;
+    auto root;
+    req = jsetb(jsets(jsets(jo(), "callback_query_id", cbid), "text", text), "show_alert", 1);
+    root = tg_post("answerCallbackQuery", req, 15);
+    json_release(root);
+    root != 0;
+}

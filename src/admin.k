@@ -248,6 +248,19 @@ resolve_new(rid) {
     1;
 }
 
+// Объясняет админу, почему не вышла публикация в канал: голое «Bad Request: chat not
+// found» не говорит, что бота просто нет в канале.
+publish_error(desc) {
+    if !desc return "Не получилось опубликовать: неизвестная ошибка";
+    if s_has(desc, "chat not found") | s_has(desc, "not a member") | s_has(desc, "was kicked") {
+        return "Бота нет в канале (или в CHANNEL_ID указан не тот id). Добавьте бота в канал администратором с правом публикации и нажмите «Опубликовать» ещё раз.";
+    }
+    if s_has(desc, "rights") | s_has(desc, "CHAT_ADMIN_REQUIRED") | s_has(desc, "CHAT_WRITE_FORBIDDEN") {
+        return "У бота нет права публиковать в канале. Включите ему в правах администратора «Публикация сообщений» и нажмите «Опубликовать» ещё раз.";
+    }
+    sb_str(sb_add(qb("Не получилось опубликовать: "), desc));
+}
+
 // Публикует работу. Возвращает текст ошибки или 0.
 approve_work(admin, rid) {
     auto mid;
@@ -269,9 +282,9 @@ approve_work(admin, rid) {
     }
     mid = send_work(cfg_channel, post_html(post_limit()));
     if !mid {
-        err = sb_str(sb_add(qb("Не получилось опубликовать: "), nz(tg_last_err, "неизвестная ошибка")));
+        err = s_cutc(publish_error(tg_last_err), 190);  // в окне Telegram до 200 символов
         db_rollback();
-        return s_cut(err, 190);
+        return err;
     }
     q = qb("UPDATE requests SET channel_link = ");
     sb_lit(q, post_link(mid));
@@ -391,5 +404,6 @@ on_admin(uid, cbid, data) {
         u_set(uid, "a_fix", rid, "");
         show_step(uid, 1);
     } else err = "Неизвестная кнопка";
-    tg_ack(cbid, err);
+    if err return tg_alert(cbid, err);
+    tg_ack(cbid, 0);
 }

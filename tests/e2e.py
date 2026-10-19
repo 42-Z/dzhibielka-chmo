@@ -730,10 +730,22 @@ def publish_failure(c):
     c.press(USER, "Пропустить")
     c.press(USER, "Остаться анонимом")
     c.press(USER, "Отправить на проверку")
-    WORLD.fail["sendPhoto:%d" % CHANNEL] = "Bad Request: chat not found"
-    press_card(c, ADMIN1, "Опубликовать")
+    # Ошибки Telegram админ видит по-русски и окном, а не голым «Bad Request».
+    causes = [
+        ("Bad Request: chat not found", "Бота нет в канале"),
+        ("Forbidden: bot is not a member of the channel chat", "Бота нет в канале"),
+        ("Forbidden: bot was kicked from the channel chat", "Бота нет в канале"),
+        ("Bad Request: not enough rights to send photos to the chat", "нет права публиковать"),
+        ("Bad Request: wrong file identifier", "Не получилось опубликовать: Bad Request: wrong file identifier"),
+    ]
+    for desc, expected in causes:
+        WORLD.fail["sendPhoto:%d" % CHANNEL] = desc
+        press_card(c, ADMIN1, "Опубликовать")
+        alert = last_alert(c)
+        check(expected in alert, "%s → %r" % (desc, alert))
+        check(WORLD.cb_answers[-1].get("show_alert") is True, "причина показана окном")
+        check(len(alert) <= 200, "текст помещается в окно Telegram: %d" % len(alert))
     attempts = len(c.channel_posts())
-    check("chat not found" in last_alert(c), "админ видит причину: %r" % last_alert(c))
     check(c.pg.query("SELECT status FROM requests") == [("pending",)], "заявка осталась в ожидании")
     check(c.pg.query("SELECT count(*) FROM artists WHERE name = 'Новичок'")[0][0] == 0 and
           c.pg.query("SELECT count(*) FROM characters WHERE name = 'Совсем Новый'")[0][0] == 0,
