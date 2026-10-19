@@ -45,6 +45,7 @@ main() {
         fprintf(stderr, "Не удалось инициализировать libcurl\n");
         return 1;
     }
+    bot_name();  // ник бота нужен для ссылки в подписи постов; ошибка (например, токена) попадёт в журнал
     tg_pics = env_or("BANNERS_DIR", "assets/banners");
     if !pic_exists("menu") fprintf(stderr, "В %s нет баннеров — экраны будут без картинок\n", tg_pics);
     if !db_connect(need_env("DATABASE_URL")) return 1;

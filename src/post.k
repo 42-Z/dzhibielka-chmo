@@ -1,16 +1,54 @@
 // post.k: текст поста для канала и отправка работы в Bot API.
 //
-// Пост — подпись пользователя, затем строки с художником, братухами, хэштегами и
-// (по желанию отправителя) его именем. Лимиты Telegram: подпись к медиа 1024
-// символов, текст сообщения 4096; считаются в единицах UTF-16, поэтому длину
-// видимого текста (без тегов) ведём отдельно (post_vis) и подпись пользователя
-// обрезаем под остаток.
+// Пост — подпись пользователя цитатой, затем строки с художником и братухами (метки
+// жирным), хэштеги, (по желанию отправителя) его имя и внизу подпись канала со ссылкой
+// на бота. У текстовой работы сам текст не оформляется цитатой: это не подпись, а
+// содержимое. Лимиты Telegram: подпись к медиа 1024 символа, текст сообщения 4096;
+// считаются в единицах UTF-16, поэтому длину видимого текста (без тегов) ведём отдельно
+// (post_vis), а подпись пользователя обрезаем под остаток.
 
 post_vis;       // видимая длина строки, которую сейчас собирают
 pm_artist; pm_artist_v;
 pm_chars; pm_chars_v;
 pm_tags; pm_tags_v;
 pm_credit; pm_credit_v;
+bot_user;       // имя бота без «@» (getMe) или 0, пока узнать не удалось
+
+// Имя бота для ссылки в подписи поста: спрашивает Telegram один раз и запоминает.
+bot_name() {
+    auto root;
+    auto u;
+    if bot_user return bot_user;
+    root = tg_post("getMe", jo(), 15);
+    if root {
+        u = jstr(jget(root, "result"), "username");
+        if u bot_user = strdup(u);  // живёт всё время работы бота, арена сбрасывается после каждого update
+        json_release(root);
+    }
+    bot_user;
+}
+
+// Подпись внизу поста: «42 Confession | Предложка», «Предложка» — ссылка на бота (если ник известен).
+post_footer() {
+    auto b;
+    b = qb("42 Confession | ");
+    if bot_name() {
+        sb_add(b, "<a href=\"https://t.me/");
+        sb_add(b, bot_name());
+        sb_add(b, "\">Предложка</a>");
+    } else sb_add(b, "Предложка");
+    sb_str(b);
+}
+
+// Метка строки поста: «🎨 <b>Художник:</b> » — метка жирным; видимая длина считается без тегов.
+plabel(b, icon, label) {
+    sb_add(b, icon);
+    sb_add(b, " <b>");
+    sb_add(b, label);
+    sb_add(b, "</b> ");
+    post_vis = post_vis + s_u16(icon) + 1 + s_u16(label) + 1;
+    b;
+}
 
 // Добавляет в b текст s с экранированием HTML и учитывает видимую длину.
 pv(b, s) {
@@ -56,7 +94,7 @@ post_lines() {
     // художник
     b = sb_new();
     post_vis = 0;
-    pp(b, "🎨 Художник: ");
+    plabel(b, "🎨", "Художник:");
     if r_artist {
         artist_get(r_artist);
         pv_link(b, ent_name, ent_link);
@@ -73,7 +111,7 @@ post_lines() {
     b = sb_new();
     tb = sb_new();
     post_vis = 0;
-    pp(b, "👥 Братухи: ");
+    plabel(b, "👥", "Братухи:");
     sb_add(tb, "#42братухи");
     n = 0;
     if db_exec(sb_str(q)) {
@@ -132,18 +170,22 @@ post_html(limit) {
     auto out;
     auto meta;
     auto room;
+    auto is_text;
+    auto footer;
 
     post_lines();
     items = json_loads(r_items, 0, 0);
     first = post_first(items);
     body = r_caption;
+    is_text = s_eq(nz(jstr(first, "t"), ""), "text");
     // Строки из items живут до json_release, поэтому тело копируем на арену.
-    if s_eq(nz(jstr(first, "t"), ""), "text") body = s_dup(nz(jstr(first, "x"), ""));
+    if is_text body = s_dup(nz(jstr(first, "x"), ""));
     json_release(items);
+    footer = post_footer();
 
-    // Длина служебных строк; если с полным списком хэштегов остаётся меньше 40
-    // символов под подпись, оставляем один общий тег.
-    meta = pm_artist_v;
+    // Длина служебных строк (вместе с пустой строкой и подписью внизу); если с полным
+    // списком хэштегов остаётся меньше 40 символов под подпись, оставляем один общий тег.
+    meta = pm_artist_v + 2 + s_u16("42 Confession | Предложка");
     if pm_chars_v meta = meta + 1 + pm_chars_v;
     if pm_credit_v meta = meta + 1 + pm_credit_v;
     if meta + 1 + pm_tags_v + 40 > limit {
@@ -156,8 +198,14 @@ post_html(limit) {
 
     out = sb_new();
     if (@8 *body != 0) & (room > 0) {
-        sb_html(out, s_cutc(body, room), 0);
-        sb_add(out, "\n\n");
+        if is_text {
+            sb_html(out, s_cutc(body, room), 0);
+            sb_add(out, "\n\n");
+        } else {
+            sb_add(out, "<blockquote>");
+            sb_html(out, s_cutc(body, room), 0);
+            sb_add(out, "</blockquote>\n");
+        }
     }
     sb_add(out, pm_artist);
     if pm_chars_v {
@@ -170,6 +218,8 @@ post_html(limit) {
         sb_c(out, '\n');
         sb_add(out, pm_credit);
     }
+    sb_add(out, "\n\n");
+    sb_add(out, footer);
     sb_str(out);
 }
 

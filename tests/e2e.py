@@ -218,6 +218,8 @@ class World:
                 return 200, {"ok": True, "result": True}
             if method == "getChat":
                 return 200, {"ok": True, "result": {"id": body["chat_id"], "type": "private"}}
+            if method == "getMe":
+                return 200, {"ok": True, "result": {"id": 8000, "is_bot": True, "first_name": "Тест", "username": "test_bot"}}
         return 404, {"ok": False, "error_code": 404, "description": "Not Found"}
 
 
@@ -635,6 +637,13 @@ def work_flow(c):
     for needle in ("Подпись автора", 'href="https://t.me/maria">Мария Рисунок</a>', "Лёнька", "Новый Герой",
                    "#42братухи", "#Лёнька", "#Новый_Герой", "#Другой", "@vasya"):
         check(needle in cap, "в подписи нет %r: %s" % (needle, cap))
+    # оформление: метки жирным, подпись автора цитатой, внизу подпись канала со ссылкой на бота
+    for needle in ("<b>Художник:</b>", "<b>Братухи:</b>", "<blockquote>Подпись автора</blockquote>"):
+        check(needle in cap, "в подписи нет %r: %s" % (needle, cap))
+    check(cap.startswith("<blockquote>"), "цитата в начале: %s" % cap)
+    check(cap.endswith('\n\n42 Confession | <a href="https://t.me/test_bot">Предложка</a>'),
+          "подпись канала внизу со ссылкой на бота: %s" % cap)
+    check(cap.index("@vasya") < cap.index("42 Confession"), "подпись канала после подписи отправителя")
     check(posts[0][1]["parse_mode"] == "HTML" and posts[0][1]["photo"] == "PH1", "параметры поста")
     check(any("опубликована" in t for t in c.texts(USER)), "отправителю пришло уведомление")
     rows = c.pg.query("SELECT status, decided_by FROM requests")
@@ -744,6 +753,9 @@ def text_work(c):
     check(len(posts) == 1 and posts[0][0] == "sendMessage", "текст ушёл сообщением")
     text = posts[0][1]["text"]
     check("Стих про &lt;братуху&gt; &amp; друзей" in text and "Борис" in text, "текст экранирован: %s" % text)
+    check("<blockquote>" not in text, "текст работы не оформляется цитатой (это не подпись): %s" % text)
+    check("<b>Художник:</b>" in text and text.endswith('42 Confession | <a href="https://t.me/test_bot">Предложка</a>'),
+          "метки жирным и подпись канала у текстовой работы: %s" % text)
 
 
 @scenario
