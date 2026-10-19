@@ -40,6 +40,14 @@ extern curl_easy_perform
 extern curl_easy_getinfo
 extern curl_easy_strerror
 extern curl_slist_append
+extern curl_mime_init
+extern curl_mime_addpart
+extern curl_mime_name
+extern curl_mime_data
+extern curl_mime_filedata
+extern curl_mime_type
+extern curl_mime_free
+extern strdup
 extern json_object
 extern json_array
 extern json_string

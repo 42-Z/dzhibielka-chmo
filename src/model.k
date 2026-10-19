@@ -12,6 +12,7 @@ u_state;          // шаг диалога текущего пользовате
 u_req;            // заявка, с которой связан шаг
 u_ret;            // куда вернуться после правки шага
 u_panel;          // id панели в чате с ботом
+u_pic;            // баннер панели: имя картинки или "" у текстовой панели
 u_group;          // media_group_id последнего принятого альбома
 
 r_id; r_kind; r_user; r_status; r_items; r_artist; r_mode; r_nart; r_nlink;
@@ -105,12 +106,13 @@ user_touch(from) {
 // Загружает сеанс пользователя в u_*.
 u_load(uid) {
     auto q;
-    q = qb("SELECT state, COALESCE(req_id, 0), ret, panel_msg, last_group FROM users WHERE id = ");
+    q = qb("SELECT state, COALESCE(req_id, 0), ret, panel_msg, last_group, panel_pic FROM users WHERE id = ");
     sb_int(q, uid);
     u_state = "";
     u_req = 0;
     u_ret = "";
     u_panel = 0;
+    u_pic = "";
     u_group = "";
     if !db_exec(sb_str(q)) return 0;
     if db_rows() < 1 return 0;
@@ -119,6 +121,7 @@ u_load(uid) {
     u_ret = s_dup(db_val(0, 2));
     u_panel = db_int(0, 3);
     u_group = s_dup(db_val(0, 4));
+    u_pic = s_dup(db_val(0, 5));
     1;
 }
 
@@ -138,13 +141,17 @@ u_set(uid, state, req, ret) {
     db_exec(sb_str(q));
 }
 
-u_set_panel(uid, mid) {
+// Запоминает панель: id сообщения и имя её баннера ("" — обычный текст).
+u_set_panel(uid, mid, pic) {
     auto q;
     q = qb("UPDATE users SET panel_msg = ");
     sb_int(q, mid);
+    sb_add(q, ", panel_pic = ");
+    sb_lit(q, pic);
     sb_add(q, " WHERE id = ");
     sb_int(q, uid);
     u_panel = mid;
+    u_pic = pic;
     db_exec(sb_str(q));
 }
 

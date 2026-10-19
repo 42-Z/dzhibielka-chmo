@@ -10,9 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
     req_id      bigint,                        -- заявка, к которой относится шаг
     ret         text NOT NULL DEFAULT '',      -- куда вернуться после правки шага
     panel_msg   bigint NOT NULL DEFAULT 0,     -- id панели в чате с ботом
+    panel_pic   text NOT NULL DEFAULT '',      -- баннер панели; пусто — панель без картинки
     last_group  text NOT NULL DEFAULT '',      -- media_group_id последнего принятого альбома
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Для баз, созданных до появления баннеров.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_pic text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS artists (
     id          bigserial PRIMARY KEY,

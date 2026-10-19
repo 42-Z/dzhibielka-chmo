@@ -48,34 +48,69 @@ cba(act, rid) {
 
 // --- панель --------------------------------------------------------------------
 
-// Показывает панель: правит старую на месте или (fresh, либо если правка не
-// удалась) отправляет новую и удаляет старую. kb — массив рядов кнопок или 0.
-panel(uid, html, kb, fresh) {
-    auto mk;
-    auto cp;
-    auto id;
+// Подпись к фото ограничена 1024 символами.
+pic_fits(html) s_u16(html) <= 1024;
 
-    mk = 0;
-    cp = 0;
-    if kb {
-        mk = kb_markup(kb);
-        cp = jcopy(mk);
+// Показывает панель: правит старую на месте или (fresh, либо если правка не
+// удалась, либо у старой другой вид — фото вместо текста и наоборот) отправляет новую и
+// удаляет старую. pic — имя баннера (панель-фото) или 0 (обычный текст); не помещается
+// подпись — панель тоже уходит без баннера. kb — массив рядов кнопок или 0.
+panel_pic(uid, pic, html, kb, fresh) {
+    auto mk;
+    auto id;
+    auto ok;
+    auto tried;
+    auto had;
+
+    if pic {
+        if !pic_fits(html) pic = 0;
     }
+    mk = 0;
+    if kb mk = kb_markup(kb);
+    ok = 0;
+    tried = 0;
     if (u_panel != 0) & !fresh {
-        if tg_edit(uid, u_panel, html, mk) {
-            json_release(cp);
-            return 1;
+        had = u_pic;
+        if s_eq(had, nz(pic, "")) {
+            tried = 1;
+            if pic ok = tg_edit_caption(uid, u_panel, html, mk);
+            else ok = tg_edit(uid, u_panel, html, jcopy(mk));
+        } else if (@8 *had != 0) & (pic != 0) {
+            tried = 1;
+            ok = tg_edit_pic(uid, u_panel, pic, html, mk);
+            if ok u_set_panel(uid, u_panel, pic);
         }
         // Текст не изменился — это не ошибка.
-        if (tg_last_err != 0) & (strstr(tg_last_err, "not modified") != 0) {
-            json_release(cp);
-            return 1;
+        if tried & !ok {
+            if tg_err_has("not modified") ok = 1;
         }
-    } else json_release(mk);
+    }
+    if ok {
+        json_release(mk);
+        return 1;
+    }
     if u_panel != 0 tg_delete(uid, u_panel);
-    id = tg_send(uid, html, cp);
-    if id u_set_panel(uid, id);
+    id = 0;
+    if pic id = tg_photo(uid, pic, html, mk);
+    if !id {
+        pic = 0;  // нет файла баннера или Telegram его не принял: панель текстом
+        id = tg_send(uid, html, mk);
+        mk = 0;
+    }
+    json_release(mk);
+    if id u_set_panel(uid, id, nz(pic, ""));
     id != 0;
+}
+
+panel(uid, html, kb, fresh) panel_pic(uid, 0, html, kb, fresh);
+
+// Отдельное сообщение с баннером (уведомление): без баннера уходит обычным текстом.
+send_pic(chat, pic, html) {
+    auto id;
+    id = 0;
+    if pic_fits(html) id = tg_photo(chat, pic, html, 0);
+    if !id id = tg_send(chat, html, 0);
+    id;
 }
 
 next_label() {
@@ -118,14 +153,14 @@ show_menu(uid, fresh) {
     kb_row1(kb, btn_cb("🖼 Предложить работу", "m:work"));
     kb_row2(kb, btn_cb("🎨 Предложить художника", "m:artist"), btn_cb("👤 Предложить героя", "m:hero"));
     kb_row2(kb, btn_cb("📋 Мои заявки", "m:mine"), btn_cb("ℹ️ Правила", "m:rules"));
-    panel(uid, "Здарова, братуха! 👋\n\nЭто предложка канала <b>42 CONFESSION</b>. Присылай арты и творчество про 42 братух — админ проверит, и бот выложит всё в канал.\n\nЧто делаем?", kb, fresh);
+    panel_pic(uid, "menu", "Здарова, братуха! 👋\n\nЭто предложка канала <b>42 CONFESSION</b>. Присылай арты и творчество про 42 братух — админ проверит, и бот выложит всё в канал.\n\nЧто делаем?", kb, fresh);
 }
 
 show_rules(uid) {
     auto kb;
     kb = ja();
     kb_row1(kb, btn_cb("⬅️ В меню", "m:home"));
-    panel(uid, "ℹ️ <b>Правила</b>\n\n• Можно предлагать свои и чужие работы про 42 братух: картинки, видео, GIF, файлы или текст.\n• Художника и героев выбираешь из списка. Нет в списке — предложи нового, админ добавит.\n• Каждую заявку проверяет админ: примет, поправит или отклонит.\n• В канале можно остаться анонимом или подписаться.", kb, 0);
+    panel_pic(uid, "rules", "ℹ️ <b>Правила</b>\n\n• Можно предлагать свои и чужие работы про 42 братух: картинки, видео, GIF, файлы или текст.\n• Художника и героев выбираешь из списка. Нет в списке — предложи нового, админ добавит.\n• Каждую заявку проверяет админ: примет, поправит или отклонит.\n• В канале можно остаться анонимом или подписаться.", kb, 0);
 }
 
 // «Мои заявки»: последние десять, кроме черновиков.
@@ -169,13 +204,15 @@ show_mine(uid) {
             } else {
                 sb_add(b, " — ❌ отклонено");
                 if @8 *db_val(i, 3) != 0 {
+                    // Полную причину пользователь уже получил уведомлением; здесь коротко,
+                    // чтобы список поместился в подпись к баннеру.
                     sb_add(b, ": ");
-                    sb_html(b, db_val(i, 3), 0);
+                    sb_html(b, s_cutc(db_val(i, 3), 50), 0);
                 }
             }
         }
     }
     kb = ja();
     kb_row1(kb, btn_cb("⬅️ В меню", "m:home"));
-    panel(uid, sb_str(b), kb, 0);
+    panel_pic(uid, "mine", sb_str(b), kb, 0);
 }

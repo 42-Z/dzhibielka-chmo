@@ -193,7 +193,8 @@ notify_user(rid) {
             sb_html(b, r_reason, 0);
         }
     }
-    tg_send(r_user, sb_str(b), 0);
+    if s_eq(r_status, "approved") send_pic(r_user, "approved", sb_str(b));
+    else send_pic(r_user, "rejected", sb_str(b));
 }
 
 // --- решения -------------------------------------------------------------------
@@ -337,7 +338,7 @@ admin_reason(uid, text) {
     rid = u_req;
     u_set(uid, "", 0, "");
     if u_panel tg_delete(uid, u_panel);
-    u_set_panel(uid, 0);
+    u_set_panel(uid, 0, "");
     if reject(uid, rid, s_trim(s_cutc(text, 300))) reply(uid, "Отклонено, отправитель получит уведомление.");
     else reply(uid, "Эту заявку уже решили.");
 }
@@ -346,8 +347,8 @@ admin_reason(uid, text) {
 admin_fix_done(uid, rid) {
     u_set(uid, "", 0, "");
     cards_refresh(rid);
-    panel(uid, sb_str(sb_add(sb_int(qb("✔ Правки заявки #"), rid), " сохранены.")), 0, 0);
-    u_set_panel(uid, 0);
+    panel_pic(uid, "edit", sb_str(sb_add(sb_int(qb("✔ Правки заявки #"), rid), " сохранены.")), 0, 0);
+    u_set_panel(uid, 0, "");
     0;
 }
 
@@ -368,7 +369,7 @@ on_admin(uid, cbid, data) {
     if s_eq(act, "norej") | s_eq(act, "noreason") {
         if s_eq(u_state, "a_reason") & (u_req == rid) {
             if u_panel tg_delete(uid, u_panel);
-            u_set_panel(uid, 0);
+            u_set_panel(uid, 0, "");
             u_set(uid, "", 0, "");
         }
         if s_eq(act, "norej") return tg_ack(cbid, 0);
@@ -399,7 +400,7 @@ on_admin(uid, cbid, data) {
         u_set(uid, "a_reason", rid, "");
         kb = ja();
         kb_row2(kb, btn_cb("Без причины", cba("noreason", rid)), btn_cb("Отмена", cba("norej", rid)));
-        panel(uid, sb_str(sb_add(sb_int(qb("❌ Напиши причину отказа для заявки #"), rid), " — её увидит отправитель.")), kb, 1);
+        panel_pic(uid, "reason", sb_str(sb_add(sb_int(qb("❌ Напиши причину отказа для заявки #"), rid), " — её увидит отправитель.")), kb, 1);
     } else if s_eq(act, "fix") {
         u_set(uid, "a_fix", rid, "");
         show_step(uid, 1);

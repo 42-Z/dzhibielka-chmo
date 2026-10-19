@@ -19,10 +19,14 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
+from email.parser import BytesParser
+from email.policy import HTTP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import cast
 
 import psycopg
 
@@ -59,6 +63,8 @@ class World:
             self.next_mid = 100
             self.fail = {}           # метод или "метод:chat" -> описание ошибки
             self.cb_answers = []
+            self.uploads = []        # файлы, загруженные формой multipart: {"method", "name", "data"}
+            self.bad_files = set()   # file_id, которые Telegram «забыл»
 
     # очередь и ожидание
     def enqueue(self, kind, payload):
@@ -81,6 +87,13 @@ class World:
     def chat_of(self, body):
         return str(body.get("chat_id"))
 
+    @staticmethod
+    def banner_of(file_id):
+        """Имя баннера по file_id, который выдал поддельный Telegram («BNR:menu.jpg:3»), или None."""
+        if isinstance(file_id, str) and file_id.startswith("BNR:"):
+            return file_id.split(":")[1].removesuffix(".jpg")
+        return None
+
     def new_message(self, body, method, text=None):
         self.next_mid += 1
         mid = self.next_mid
@@ -91,9 +104,32 @@ class World:
             "text": text if text is not None else body.get("text", body.get("caption", "")),
             "markup": body.get("reply_markup"),
             "body": body,
+            "banner": self.banner_of(body.get("photo")),
             "deleted": False,
         }
         return mid
+
+    def photo_result(self, mid, file_id):
+        return {"message_id": mid, "photo": [{"file_id": file_id + "_s", "width": 90, "height": 45},
+                                              {"file_id": file_id, "width": 1280, "height": 640}]}
+
+    def take_upload(self, method, body, field):
+        """Картинка из multipart-формы: запоминает файл и выдаёт новый file_id."""
+        name, data = body["_files"][field]
+        self.uploads.append({"method": method, "name": name, "data": data})
+        return "BNR:%s:%d" % (name, len(self.uploads))
+
+    def edit_target(self, body, want_photo):
+        """Сообщение для правки либо описание ошибки Telegram."""
+        m = self.messages.get((self.chat_of(body), body["message_id"]))
+        if not m or m["deleted"]:
+            return None, "Bad Request: message to edit not found"
+        is_photo = m["method"] == "sendPhoto"
+        if want_photo and not is_photo:
+            return None, "Bad Request: there is no caption in the message to edit"
+        if not want_photo and is_photo:
+            return None, "Bad Request: there is no text in the message to edit"
+        return m, None
 
     def handle(self, method, body):
         """Возвращает (http_status, json)."""
@@ -117,7 +153,18 @@ class World:
                 return 400, {"ok": False, "error_code": 400, "description": err}
             if method == "sendMessage":
                 return 200, {"ok": True, "result": {"message_id": self.new_message(body, method)}}
-            if method in ("sendPhoto", "sendVideo", "sendAnimation", "sendDocument"):
+            if method == "sendPhoto":
+                if "_files" in body:
+                    body["photo"] = self.take_upload(method, body, "photo")
+                elif body.get("photo") in self.bad_files:
+                    return 400, {"ok": False, "error_code": 400,
+                                 "description": "Bad Request: wrong file identifier/HTTP URL specified"}
+                if len(body.get("caption", "")) > 1024:
+                    return 400, {"ok": False, "error_code": 400, "description": "Bad Request: message caption is too long"}
+                body["_banner"] = self.banner_of(body.get("photo")) is not None
+                mid = self.new_message(body, method)
+                return 200, {"ok": True, "result": self.photo_result(mid, body["photo"])}
+            if method in ("sendVideo", "sendAnimation", "sendDocument"):
                 return 200, {"ok": True, "result": {"message_id": self.new_message(body, method)}}
             if method == "sendMediaGroup":
                 result = []
@@ -127,15 +174,36 @@ class World:
                     result.append({"message_id": mid})
                 return 200, {"ok": True, "result": result}
             if method == "editMessageText":
-                m = self.messages.get((chat, body["message_id"]))
-                if not m or m["deleted"]:
-                    return 400, {"ok": False, "error_code": 400,
-                                 "description": "Bad Request: message to edit not found"}
+                m, err = self.edit_target(body, False)
+                if err:
+                    return 400, {"ok": False, "error_code": 400, "description": err}
                 if m["text"] == body["text"] and m["markup"] == body.get("reply_markup"):
                     return 400, {"ok": False, "error_code": 400,
                                  "description": "Bad Request: message is not modified"}
                 m["text"], m["markup"] = body["text"], body.get("reply_markup")
                 return 200, {"ok": True, "result": {"message_id": body["message_id"]}}
+            if method in ("editMessageCaption", "editMessageMedia"):
+                m, err = self.edit_target(body, True)
+                if err:
+                    return 400, {"ok": False, "error_code": 400, "description": err}
+                if method == "editMessageCaption":
+                    caption, photo = body["caption"], m["body"]["photo"]
+                else:
+                    media = body["media"]
+                    caption, photo = media.get("caption", ""), media["media"]
+                    if photo.startswith("attach://"):
+                        photo = self.take_upload(method, body, photo[len("attach://"):])
+                    elif photo in self.bad_files:
+                        return 400, {"ok": False, "error_code": 400,
+                                     "description": "Bad Request: wrong file identifier/HTTP URL specified"}
+                if len(caption) > 1024:
+                    return 400, {"ok": False, "error_code": 400, "description": "Bad Request: message caption is too long"}
+                if (m["text"], m["markup"], m["body"]["photo"]) == (caption, body.get("reply_markup"), photo):
+                    return 400, {"ok": False, "error_code": 400,
+                                 "description": "Bad Request: message is not modified"}
+                m["text"], m["markup"], m["body"]["photo"] = caption, body.get("reply_markup"), photo
+                m["banner"] = self.banner_of(photo)
+                return 200, {"ok": True, "result": self.photo_result(m["id"], photo)}
             if method == "deleteMessage":
                 m = self.messages.get((chat, body["message_id"]))
                 if not m or m["deleted"]:
@@ -178,10 +246,34 @@ class FakeBotApi(BaseHTTPRequestHandler):
         prefix = "/bot%s/" % TOKEN
         if not self.path.startswith(prefix):
             return self.respond(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})
-        if self.headers.get("Content-Type") != "application/json":
-            return self.respond(400, {"ok": False, "error_code": 400, "description": "нужен JSON"})
-        status, payload = WORLD.handle(self.path[len(prefix):], json.loads(raw))
+        ctype = self.headers.get("Content-Type", "")
+        if ctype == "application/json":
+            body = json.loads(raw)
+        elif ctype.startswith("multipart/form-data"):
+            body = self.parse_form(ctype, raw)
+        else:
+            return self.respond(400, {"ok": False, "error_code": 400, "description": "нужен JSON или multipart"})
+        status, payload = WORLD.handle(self.path[len(prefix):], body)
         self.respond(status, payload)
+
+    @staticmethod
+    def parse_form(ctype, raw):
+        """multipart/form-data -> тело запроса как у JSON; файлы лежат в body["_files"][поле] = (имя, байты)."""
+        msg = BytesParser(policy=HTTP).parsebytes(b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + raw)
+        body, files = {}, {}
+        for part in msg.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            data = cast(bytes, part.get_payload(decode=True))
+            if part.get_filename() is not None:
+                files[name] = (part.get_filename(), data)
+            elif name in ("chat_id", "message_id"):
+                body[name] = int(data)
+            elif name in ("reply_markup", "media"):
+                body[name] = json.loads(data)
+            else:
+                body[name] = data.decode()
+        body["_files"] = files
+        return body
 
 
 # --- процесс бота и БД ----------------------------------------------------------
@@ -355,10 +447,15 @@ class Ctx:
         self.say(uid, text, via_bot={"id": 777, "is_bot": True, "first_name": "bot", "username": "bot"})
 
     # --- что видно в чатах
+    def panels(self, uid):
+        """Живые панели бота в чате: сообщения с кнопками, текстом или баннером. Пояснения
+        без кнопок («так нельзя») панелью не считаются."""
+        return [m for (c, _), m in sorted(WORLD.messages.items(), key=lambda kv: kv[0][1])
+                if c == str(uid) and not m["deleted"] and m["markup"]
+                and (m["method"] == "sendMessage" or m["banner"])]
+
     def last_panel(self, uid):
-        # Панель — сообщение бота с кнопками; пояснения без кнопок («так нельзя») её не заменяют.
-        msgs = [m for (c, _), m in WORLD.messages.items() if c == str(uid) and not m["deleted"]
-                and m["method"] == "sendMessage" and m["markup"]]
+        msgs = self.panels(uid)
         return msgs[-1] if msgs else None
 
     def texts(self, uid):
@@ -370,7 +467,13 @@ class Ctx:
         return [b["text"] for row in (m["markup"] or {}).get("inline_keyboard", []) for b in row]
 
     def sent(self, method, chat=None):
-        return [b for (mt, b) in WORLD.calls if mt == method and (chat is None or str(b.get("chat_id")) == str(chat))]
+        """Вызовы метода, кроме баннеров бота (их смотрит banner_calls)."""
+        return [b for (mt, b) in WORLD.calls if mt == method and not b.get("_banner")
+                and (chat is None or str(b.get("chat_id")) == str(chat))]
+
+    def banner_calls(self, method, chat=None):
+        return [b for (mt, b) in WORLD.calls if mt == method and b.get("_banner")
+                and (chat is None or str(b.get("chat_id")) == str(chat))]
 
     def channel_posts(self):
         return [(mt, b) for (mt, b) in WORLD.calls
@@ -597,8 +700,7 @@ def album_work(c):
     for fid in ("A", "B", "C"):
         c.photo(USER, fid, media_group_id="g1")
     check("Принято: <b>3</b>" in c.last_panel(USER)["text"], "альбом принят целиком")
-    check(len([m for m in WORLD.messages.values() if m["chat"] == str(USER) and m["method"] == "sendMessage"
-               and not m["deleted"]]) == 1, "на альбом одна панель")
+    check(len(c.panels(USER)) == 1, "на альбом одна панель")
     c.press(USER, "Дальше")
     c.pick(USER, "Борис")
     c.press(USER, "Дальше")
@@ -954,6 +1056,110 @@ def inline_misc(c):
     check(c.inline_answer("iqg")["results"] == [], "в группах список не показывается")
 
 
+def calls(method):
+    return [b for (mt, b) in WORLD.calls if mt == method]
+
+
+@scenario
+def banners(c):
+    c.start()
+    seed_basic(c)
+
+    # меню: первый раз картинка уходит файлом, дальше — по file_id
+    c.say(USER, "/start")
+    menu = c.last_panel(USER)
+    check(menu["method"] == "sendPhoto" and menu["banner"] == "menu", "меню — баннер: %r" % menu["banner"])
+    check("42 CONFESSION" in menu["text"] and menu["body"]["parse_mode"] == "HTML", "текст меню в подписи")
+    check(len(WORLD.uploads) == 1 and WORLD.uploads[0]["name"] == "menu.jpg", "первый раз файл ушёл формой")
+    jpeg = WORLD.uploads[0]["data"]
+    check(jpeg[:3] == b"\xff\xd8\xff" and len(jpeg) > 10000, "в форме настоящий JPEG, а не пустышка: %d байт" % len(jpeg))
+    c.say(USER2, "/start")
+    check(len(WORLD.uploads) == 1 and c.last_panel(USER2)["banner"] == "menu", "второму пользователю — по file_id")
+
+    # другой экран: то же сообщение, картинка заменяется на месте
+    c.press(USER, "Предложить работу")
+    media = c.last_panel(USER)
+    check(media["id"] == menu["id"] and media["banner"] == "media" and "Новая работа" in media["text"],
+          "баннер сменился на месте")
+    check(len(calls("editMessageMedia")) == 1 and len(WORLD.uploads) == 2, "новая картинка ушла в editMessageMedia")
+    c.photo(USER, "PH1")
+    check(len(c.panels(USER)) == 1 and c.last_panel(USER)["banner"] == "media" and len(WORLD.uploads) == 2,
+          "после фото панель пришла заново, но уже по file_id")
+
+    # тот же баннер: правится только подпись
+    c.press(USER, "Дальше")
+    c.pick(USER, "Борис")
+    c.press(USER, "Дальше")
+    c.pick(USER, "Лёнька")
+    before = c.last_panel(USER)
+    edits = len(calls("editMessageCaption"))
+    c.press(USER, "✖ Лёнька")
+    after = c.last_panel(USER)
+    check(after["id"] == before["id"] and after["banner"] == "chars", "баннер героев остался")
+    check(len(calls("editMessageCaption")) == edits + 1 and "пока никого" in after["text"], "правка подписи без картинки")
+
+    # просмотр поста — без баннера: панель из фото становится текстом и обратно
+    c.press(USER, "Дальше")
+    c.press(USER, "Пропустить")
+    check(c.last_panel(USER)["banner"] == "credit", "экран подписи отправителя")
+    c.press(USER, "Остаться анонимом")
+    review = c.last_panel(USER)
+    check(review["method"] == "sendMessage" and review["banner"] is None and "Так будет выглядеть пост" in review["text"],
+          "просмотр поста без баннера")
+    check(len(c.panels(USER)) == 1, "старая панель удалена")
+    c.press(USER, "Изменить")
+    check(c.last_panel(USER)["banner"] == "edit" and len(c.panels(USER)) == 1, "меню правки с баннером")
+    c.press(USER, "К просмотру")
+    check(c.last_panel(USER)["method"] == "sendMessage" and len(c.panels(USER)) == 1, "обратно к тексту")
+    c.press(USER, "Отправить на проверку")
+    check(c.last_panel(USER)["banner"] == "sent", "подтверждение с баннером")
+    check(card_of(c, ADMIN1)["method"] == "sendMessage" and not card_of(c, ADMIN1)["banner"], "карточка админа текстом")
+
+    # причина отказа и итоговые уведомления
+    press_card(c, ADMIN1, "Отклонить")
+    check(c.last_panel(ADMIN1)["banner"] == "reason", "запрос причины с баннером")
+    c.say(ADMIN1, "Не подходит")
+    rejected = [m for m in WORLD.messages.values() if m["chat"] == str(USER) and m.get("banner") == "rejected"]
+    check(len(rejected) == 1 and "Не подходит" in rejected[0]["text"], "отказ пришёл с баннером")
+    new_work(c)
+    press_card(c, ADMIN1, "Опубликовать")
+    approved = [m for m in WORLD.messages.values() if m["chat"] == str(USER) and m.get("banner") == "approved"]
+    check(len(approved) == 1 and "опубликована" in approved[0]["text"], "одобрение пришло с баннером")
+    check(len(c.channel_posts()) == 1 and all(not b.get("_banner") for _, b in c.channel_posts()),
+          "в канал баннеры не попадают")
+    check(c.bot.log.count("editMessageText: Bad Request: there is no text in the message to edit") == 0,
+          "текст у фото-сообщения не правится: %s" % c.bot.log[-5:])
+
+
+@scenario
+def banner_recovery(c):
+    c.start()
+    c.say(USER, "/start")
+    fid = c.last_panel(USER)["body"]["photo"]
+    # Telegram перестал принимать сохранённый file_id: бот загружает файл заново и дальше работает с новым
+    WORLD.bad_files.add(fid)
+    c.say(USER2, "/start")
+    check(len(WORLD.uploads) == 2 and c.last_panel(USER2)["banner"] == "menu", "после отказа файл загружен заново")
+    new_fid = c.last_panel(USER2)["body"]["photo"]
+    check(new_fid != fid, "выдан новый file_id")
+    c.say(ADMIN2, "/start")
+    check(len(WORLD.uploads) == 2 and c.last_panel(ADMIN2)["body"]["photo"] == new_fid, "дальше — по новому file_id")
+
+
+@scenario
+def banners_missing(c):
+    empty = tempfile.mkdtemp()
+    c.start(BANNERS_DIR=empty)
+    check(c.bot.wait_log("нет баннеров", 10) and c.bot.wait_log("Бот запущен", 10), "предупреждение при старте: %s" % c.bot.log)
+    c.say(USER, "/start")
+    menu = c.last_panel(USER)
+    check(menu["method"] == "sendMessage" and not menu["banner"] and "Что делаем" in menu["text"],
+          "без файлов экран приходит обычным текстом")
+    c.press(USER, "Предложить работу")
+    check("Новая работа" in c.last_panel(USER)["text"] and len(c.panels(USER)) == 1, "мастер работает без баннеров")
+    check(WORLD.uploads == [], "ничего не загружалось")
+
+
 def main():
     binary = sys.argv[1]
     only = set(sys.argv[2:])
@@ -979,7 +1185,7 @@ def main():
                 if c.bot:
                     print("      stderr бота:", *c.bot.log[-15:], sep="\n        ")
                 print("      ответы на кнопки:", [a.get("text") for a in WORLD.cb_answers][-8:])
-                print("      вызовы:", *["%s %s" % (mt, json.dumps(b, ensure_ascii=False)[:140])
+                print("      вызовы:", *["%s %s" % (mt, json.dumps(b, ensure_ascii=False, default=str)[:140])
                                          for mt, b in WORLD.calls[-6:]], sep="\n        ")
                 try:
                     print("      users:", pg.query("SELECT id, state, req_id, ret, panel_msg FROM users ORDER BY id"))

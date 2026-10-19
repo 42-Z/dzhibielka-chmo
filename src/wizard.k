@@ -50,7 +50,7 @@ scr_media(uid, fresh) {
     }
     if @8 *u_ret != 0 kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
     else kb_row1(kb, btn_cb("🗑 Отмена", cbw("cancel", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, "media", sb_str(b), kb, fresh);
 }
 
 scr_artist(uid, fresh) {
@@ -63,7 +63,7 @@ scr_artist(uid, fresh) {
     kb_row2(kb, btn_cb("🙋 Это моя работа", cbw("own", r_id)), btn_cb("❔ Автор неизвестен", cbw("unk", r_id)));
     kb_row1(kb, btn_cb("➕ Нет в списке", cbw("anew", r_id)));
     nav(kb, r_id, artist_set());
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, "artist", sb_str(b), kb, fresh);
 }
 
 scr_aname(uid, fresh) {
@@ -71,8 +71,8 @@ scr_aname(uid, fresh) {
     kb = ja();
     if s_eq(r_mode, "own") kb_row1(kb, btn_cb("Использовать моё имя", cbw("useunm", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    if s_eq(r_mode, "own") panel(uid, "🙋 <b>Твоя работа</b>\n\nНапиши, как подписать тебя как художника: имя или ник.", kb, fresh);
-    else panel(uid, "➕ <b>Новый художник</b>\n\nНапиши имя или ник художника.", kb, fresh);
+    if s_eq(r_mode, "own") panel_pic(uid, "artist_new", "🙋 <b>Твоя работа</b>\n\nНапиши, как подписать тебя как художника: имя или ник.", kb, fresh);
+    else panel_pic(uid, "artist_new", "➕ <b>Новый художник</b>\n\nНапиши имя или ник художника.", kb, fresh);
 }
 
 scr_alink(uid, fresh) {
@@ -83,7 +83,7 @@ scr_alink(uid, fresh) {
     }
     kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    panel(uid, "🔗 <b>Ссылка на художника</b>\n\nПришли ссылку на его страницу или соцсеть, либо @ник в Telegram. Можно пропустить.", kb, fresh);
+    panel_pic(uid, "artist_new", "🔗 <b>Ссылка на художника</b>\n\nПришли ссылку на его страницу или соцсеть, либо @ник в Telegram. Можно пропустить.", kb, fresh);
 }
 
 scr_chars(uid, fresh) {
@@ -136,13 +136,13 @@ scr_chars(uid, fresh) {
     if cnt == 0 sb_add(b, "пока никого");
     else sb_add(b, "\n\nНажми на героя, чтобы убрать его.");
     nav(kb, r_id, 1);
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, "chars", sb_str(b), kb, fresh);
 }
 
 scr_cnew(uid, fresh) {
     auto kb;
     kb = jpush(ja(), jpush(ja(), btn_cb("⬅️ Назад", cbs("back", r_id))));
-    panel(uid, "➕ <b>Новые герои</b>\n\nНапиши имена героев, которых нет в списке, через запятую (до 5). Админ проверит и добавит их.", kb, fresh);
+    panel_pic(uid, "chars_new", "➕ <b>Новые герои</b>\n\nНапиши имена героев, которых нет в списке, через запятую (до 5). Админ проверит и добавит их.", kb, fresh);
 }
 
 scr_caption(uid, fresh) {
@@ -156,7 +156,7 @@ scr_caption(uid, fresh) {
         kb_row2(kb, btn_cb("Оставить", cbs("skip", r_id)), btn_cb("Убрать подпись", cbs("capdel", r_id)));
     } else kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, "caption", sb_str(b), kb, fresh);
 }
 
 scr_credit(uid, fresh) {
@@ -164,7 +164,7 @@ scr_credit(uid, fresh) {
     kb = ja();
     kb_row2(kb, btn_cb("Указать меня", cbw2("credit", r_id, 1)), btn_cb("Остаться анонимом", cbw2("credit", r_id, 0)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    panel(uid, "✍️ <b>Подписать тебя в посте?</b>\n\nПо умолчанию пост выходит анонимно.", kb, fresh);
+    panel_pic(uid, "credit", "✍️ <b>Подписать тебя в посте?</b>\n\nПо умолчанию пост выходит анонимно.", kb, fresh);
 }
 
 scr_review(uid, fresh) {
@@ -197,7 +197,7 @@ scr_edit(uid, fresh) {
     else kb_row2(kb, goto_btn("👥 Герои", r_id, "chars"), goto_btn("📝 Подпись", r_id, "caption"));
     kb_row1(kb, goto_btn("✍️ Подпись отправителя", r_id, "credit"));
     kb_row1(kb, btn_cb("⬅️ К просмотру", cbs("back", r_id)));
-    panel(uid, "✏️ <b>Что изменить?</b>", kb, fresh);
+    panel_pic(uid, "edit", "✏️ <b>Что изменить?</b>", kb, fresh);
 }
 
 // --- заявка на художника или героя --------------------------------------------
@@ -205,6 +205,12 @@ scr_edit(uid, fresh) {
 ent_title() {
     if s_eq(r_kind, "artist") return "🎨 <b>Новый художник</b>";
     "👤 <b>Новый герой</b>";
+}
+
+// Баннер экранов заявки на художника или героя.
+ent_pic() {
+    if s_eq(r_kind, "artist") return "artist_new";
+    "chars_new";
 }
 
 scr_ename(uid, fresh) {
@@ -216,7 +222,7 @@ scr_ename(uid, fresh) {
     kb = ja();
     if @8 *u_ret != 0 kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
     else kb_row1(kb, btn_cb("🗑 Отмена", cbw("cancel", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, ent_pic(), sb_str(b), kb, fresh);
 }
 
 scr_eextra(uid, fresh) {
@@ -228,7 +234,7 @@ scr_eextra(uid, fresh) {
     kb = ja();
     kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, ent_pic(), sb_str(b), kb, fresh);
 }
 
 scr_enote(uid, fresh) {
@@ -239,7 +245,7 @@ scr_enote(uid, fresh) {
     kb = ja();
     kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, ent_pic(), sb_str(b), kb, fresh);
 }
 
 // Описание заявки на художника/героя для экранов и карточек.
@@ -268,7 +274,7 @@ scr_ereview(uid, fresh) {
     kb = ja();
     kb_row1(kb, btn_cb("✅ Отправить на проверку", cbw("send", r_id)));
     kb_row2(kb, btn_cb("✏️ Изменить", cbw("edit", r_id)), btn_cb("🗑 Отмена", cbw("cancel", r_id)));
-    panel(uid, sb_str(b), kb, fresh);
+    panel_pic(uid, ent_pic(), sb_str(b), kb, fresh);
 }
 
 scr_eedit(uid, fresh) {
@@ -277,7 +283,7 @@ scr_eedit(uid, fresh) {
     kb_row2(kb, goto_btn("Имя", r_id, "ename"), goto_btn("Ссылка / псевдонимы", r_id, "eextra"));
     kb_row1(kb, goto_btn("Примечание", r_id, "enote"));
     kb_row1(kb, btn_cb("⬅️ К просмотру", cbs("back", r_id)));
-    panel(uid, "✏️ <b>Что изменить?</b>", kb, fresh);
+    panel_pic(uid, "edit", "✏️ <b>Что изменить?</b>", kb, fresh);
 }
 
 // --- правка админом ------------------------------------------------------------

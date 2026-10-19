@@ -8,7 +8,7 @@ KIVAC  := .kiva/bin/kivac
 KIVAA  := .kiva/bin/kivaa
 LDLIBS := -lcurl -ljansson -lpq
 
-.PHONY: all run test clean distclean
+.PHONY: all run test banners clean distclean
 .DELETE_ON_ERROR:
 
 all: $(BIN)
@@ -33,6 +33,10 @@ run: $(BIN)
 
 test: $(BIN)
 	uv run --script tests/e2e.py $(BIN)
+
+# Перерисовывает баннеры из assets/make_banners.py (стиль — assets/STYLE.md).
+banners:
+	uv run --script assets/make_banners.py
 
 clean:
 	rm -rf build
