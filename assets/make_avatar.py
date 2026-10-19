@@ -19,7 +19,9 @@ HAND = 22            # блоков в стороне квадрата, в ко�
 OUT = Path(__file__).parent / "avatar.jpg"
 
 INK = (10, 12, 10)
-BG = ["#7FB6FF", "#A7B8FF", "#C2CBFF", "#DDE2FF", "#F4F6FF"]  # холодные тона: тёплая рука на них выделяется
+# Фон из двух половин: слева синие кольца, справа те же кольца в красном (тона от тёмного к светлому).
+BG_LEFT = ["#7FB6FF", "#A7B8FF", "#C2CBFF", "#DDE2FF", "#F4F6FF"]
+BG_RIGHT = ["#FF5D4F", "#FF8A7B", "#FFB0A3", "#FFD3CC", "#FFF1EE"]
 SKIN = {"base": (255, 211, 74), "shade": (245, 165, 36), "deep": (194, 106, 18), "light": (255, 240, 168)}
 
 # Рука в координатах эмодзи (квадрат 512x512, y вниз): контур каждой части.
@@ -83,13 +85,16 @@ def hand_layer():
 
 
 def background(rng):
-    """Мозаика 32x32: кольца вокруг центра, как волны от звонка."""
+    """Мозаика 32x32: кольца вокруг центра, как волны от звонка; правая половина красная."""
     yy, xx = np.mgrid[0:GRID, 0:GRID]
     d = np.hypot(xx - (GRID - 1) / 2, yy - (GRID - 1) / 2) / (GRID / 2)
     f = .5 + .5 * np.cos(2 * np.pi * d * 2.6)
     f = (f - f.min()) / (f.max() - f.min()) + rng.normal(0, .035, f.shape)
     bands = np.digitize(f, [.22, .42, .6, .78])
-    return np.array([rgb(c) for c in BG], np.uint8)[bands]
+    left = np.array([rgb(c) for c in BG_LEFT], np.uint8)[bands]
+    right = np.array([rgb(c) for c in BG_RIGHT], np.uint8)[bands]
+    split = GRID // 2 + rng.integers(-1, 2, size=(GRID, 1))  # граница чуть зубчатая, как и остальное
+    return np.where((xx < split)[..., None], left, right)
 
 
 def main():
