@@ -7,8 +7,8 @@
 # должен воспроизвести собственный IR.
 set -euo pipefail
 
-REPO_URL=https://github.com/crimbrodev/kivac.git
-REV=221280b7f6dede3d51e5485a8a35c91a70dc65bb
+REPO_URL=https://github.com/crimbrodev/kivac-plus.git
+REV=60ca86910c72bc6ca561aba498df18196bf93903
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 kiva=$(dirname "$here")/.kiva
@@ -26,8 +26,7 @@ for tool in git cc nasm cmp; do
     command -v "$tool" >/dev/null || die "не найден '$tool' (нужны git, cc, nasm)"
 done
 
-rm -rf "$stage" "$bin"
-mkdir -p "$stage" "$bin"
+mkdir -p "$kiva"
 : >"$log"
 
 # Запускает команду, а при ошибке показывает накопленный stderr.
@@ -51,6 +50,18 @@ assemble() {
 
 [ -d "$src/.git" ] || run git clone --quiet "$REPO_URL" "$src"
 run git -C "$src" checkout --quiet --detach "$REV"
+
+# Бот держит в исходнике около 18 КБ строковых литералов. Компилятор складывает их в
+# один буфер strbuf[N] (N слов по 8 байт), а при переполнении молча портит свою память,
+# поэтому слишком маленький буфер лучше обнаружить до пересборки: рабочий компилятор
+# в .kiva/bin при этом не трогаем.
+need_words=8192  # 64 КБ
+have_words=$(sed -n 's/^strbuf\[\([0-9]*\)\];.*/\1/p' "$src/kiva.k")
+[ "${have_words:-0}" -ge "$need_words" ] ||
+    die "в $REV буфер строковых литералов — ${have_words:-?} слов, боту нужно не меньше $need_words; укажите REV из kivac-plus с увеличенным strbuf"
+
+rm -rf "$stage" "$bin"
+mkdir -p "$stage" "$bin"
 
 echo "Kiva $REV: сборка компилятора"
 run cc -o "$bin/kivaa" "$src/kivaa.c"
