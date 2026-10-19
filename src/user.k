@@ -8,7 +8,6 @@ mt_type;   // тип вложения последнего msg_media: photo, vid
 mt_file;   // его file_id
 
 // Служебные пункты выпадающего списка; тот же текст приходит назад сообщением via_bot.
-sp_own() "🙋 Это моя работа";
 sp_unk() "❔ Автор неизвестен";
 sp_new() "➕ Нет в списке";
 
@@ -130,28 +129,90 @@ goto_state(step) {
 
 // --- отправка заявки -----------------------------------------------------------
 
+// Новые художник и братухи из черновика работы становятся отдельными заявками на
+// добавление (parent_id — работа), а из самой работы убираются: до решения по ним пост
+// админам не уходит. Вызывается внутри транзакции отправки. Истина, если всё записано.
+work_split(rid, uid) {
+    auto i;
+    auto n;
+    auto name;
+
+    if (r_artist == 0) & (@8 *r_nart != 0) {
+        if !rq_child(rid, uid, "artist", r_nart, r_nlink) return 0;
+        rq_set_s(rid, "artist_mode", "unknown");
+        rq_set_s(rid, "new_artist", "");
+        rq_set_s(rid, "new_artist_link", "");
+    }
+    n = l_count(r_nchars);
+    for i = 0 i < n i++ {
+        name = l_get(r_nchars, i);
+        if !rq_child(rid, uid, "character", name, "") return 0;
+    }
+    rq_set_s(rid, "new_chars", "");
+    1;
+}
+
 // Черновик -> заявка на проверку. Возвращает текст ошибки или 0.
 do_send(uid, rid) {
     auto q;
     auto kb;
     auto auto_ok;
+    auto kids;
+    auto n;
+    auto i;
+    auto is_work;
 
-    if s_eq(r_kind, "work") {
+    is_work = s_eq(r_kind, "work");
+    if is_work {
         if r_items_n() == 0 return "Сначала пришли работу";
         if !artist_set() return "Выбери художника";
     } else if @8 *r_ename == 0 return "Нужно имя";
 
+    // Заявка и выделенные из неё заявки на художника/братух уходят одной транзакцией.
+    if !db_begin() return "Не получилось отправить, попробуй ещё раз";
     q = qb("UPDATE requests SET status = 'pending' WHERE status = 'draft' AND id = ");
     sb_int(q, rid);
     sb_add(q, " AND user_id = ");
     sb_int(q, uid);
-    if !db_exec(sb_str(q)) return "Не получилось отправить, попробуй ещё раз";
-    if db_changed() != 1 return "Заявка уже отправлена";
+    if !db_exec(sb_str(q)) {
+        db_rollback();
+        return "Не получилось отправить, попробуй ещё раз";
+    }
+    if db_changed() != 1 {
+        db_rollback();
+        return "Заявка уже отправлена";
+    }
+    if is_work {
+        if !work_split(rid, uid) {
+            db_rollback();
+            return "Не получилось отправить, попробуй ещё раз";
+        }
+    }
+    if !db_commit() return "Не получилось отправить, попробуй ещё раз";
     u_set(uid, "", 0, "");
 
     auto_ok = 0;
-    if !s_eq(r_kind, "work") & is_admin(uid) auto_ok = ent_approve(rid, uid);
-    if !auto_ok cards_send(rid);
+    if is_work {
+        // Выделенные заявки решаются первыми; работа уйдёт админам, когда решена последняя.
+        kids = alloc(128);
+        q = qb("SELECT id FROM requests WHERE parent_id = ");
+        sb_int(q, rid);
+        sb_add(q, " AND status = 'pending' ORDER BY id");
+        n = 0;
+        if db_exec(sb_str(q)) {
+            n = db_rows();
+            if n > 16 n = 16;
+            for i = 0 i < n i++ kids[i] = db_int(i, 0);
+        }
+        for i = 0 i < n i++ {
+            if is_admin(uid) ent_approve(kids[i], uid);
+            else cards_send(kids[i]);
+        }
+        work_release(rid);
+    } else {
+        if is_admin(uid) auto_ok = ent_approve(rid, uid);
+        if !auto_ok cards_send(rid);
+    }
 
     kb = ja();
     kb_row1(kb, btn_cb("⬅️ В меню", "m:home"));
@@ -209,7 +270,7 @@ on_wizard(uid, cbid, data) {
     if u_req != rid return tg_ack(cbid, "Эта кнопка устарела — открой меню командой /start");
     st = u_state;
     // Кнопки смены шага несут шаг, на котором их нарисовали (см. cbs в ui.k).
-    if s_eq(act, "next") | s_eq(act, "back") | s_eq(act, "skip") | s_eq(act, "capdel") | s_eq(act, "uselink") {
+    if s_eq(act, "next") | s_eq(act, "back") | s_eq(act, "skip") | s_eq(act, "capdel") {
         if !s_eq(arg, st) return tg_ack(cbid, "Эта кнопка устарела");
     }
 
@@ -222,19 +283,6 @@ on_wizard(uid, cbid, data) {
     else if s_eq(act, "clear") {
         rq_items_clear(rid);
         show_step(uid, 0);
-    } else if s_eq(act, "own") {
-        rq_set_i(rid, "artist_id", 0);
-        rq_set_s(rid, "new_artist", "");
-        rq_set_s(rid, "new_artist_link", "");
-        if artist_of_user(r_user) {
-            rq_set_i(rid, "artist_id", ent_id);
-            rq_set_s(rid, "artist_mode", "list");
-            show_step(uid, 0);
-        } else {
-            rq_set_s(rid, "artist_mode", "own");
-            u_set(uid, "w_aname", rid, u_ret);
-            show_step(uid, 0);
-        }
     } else if s_eq(act, "unk") {
         rq_set_i(rid, "artist_id", 0);
         rq_set_s(rid, "artist_mode", "unknown");
@@ -248,15 +296,6 @@ on_wizard(uid, cbid, data) {
         rq_set_s(rid, "new_artist_link", "");
         u_set(uid, "w_aname", rid, u_ret);
         show_step(uid, 0);
-    } else if s_eq(act, "useunm") {
-        name = r_ufirst;
-        if @8 *name == 0 name = r_uname;
-        rq_set_s(rid, "new_artist", s_cutc(name, 40));
-        u_set(uid, "w_alink", rid, u_ret);
-        show_step(uid, 0);
-    } else if s_eq(act, "uselink") {
-        rq_set_s(rid, "new_artist_link", sb_str(sb_add(qb("https://t.me/"), r_uname)));
-        leave(uid, 0);
     } else if s_eq(act, "skip") {
         if s_eq(st, "w_alink") | s_eq(st, "w_caption") | s_eq(st, "e_extra") | s_eq(st, "e_note") leave(uid, 0);
         else err = "Здесь нечего пропускать";
@@ -306,18 +345,7 @@ on_pick(uid, text, fresh) {
     if !rid return 0;
     if !rq_load(rid) return 0;
     if s_eq(u_state, "w_artist") {
-        if s_eq(text, sp_own()) {
-            rq_set_i(rid, "artist_id", 0);
-            rq_set_s(rid, "new_artist", "");
-            rq_set_s(rid, "new_artist_link", "");
-            if artist_of_user(r_user) {
-                rq_set_i(rid, "artist_id", ent_id);
-                rq_set_s(rid, "artist_mode", "list");
-            } else {
-                rq_set_s(rid, "artist_mode", "own");
-                u_set(uid, "w_aname", rid, u_ret);
-            }
-        } else if s_eq(text, sp_unk()) {
+        if s_eq(text, sp_unk()) {
             rq_set_i(rid, "artist_id", 0);
             rq_set_s(rid, "artist_mode", "unknown");
             rq_set_s(rid, "new_artist", "");

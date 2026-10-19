@@ -19,6 +19,8 @@ decider_name(rid) {
 // Текст карточки по загруженной заявке (r_*).
 card_text() {
     auto b;
+    auto q;
+    auto i;
     b = sb_new();
     sb_add(b, "📨 <b>Заявка #");
     sb_int(b, r_id);
@@ -34,19 +36,36 @@ card_text() {
         sb_add(b, " @");
         sb_html(b, r_uname, 0);
     }
+    if r_parent {
+        sb_add(b, "\nДля работы #");
+        sb_int(b, r_parent);
+    }
     sb_add(b, "\n\n");
     if s_eq(r_kind, "work") {
         sb_add(b, post_html(post_limit()));
+        // Новые художник и братухи самой работы — только у заявок, отправленных до
+        // выделения их в отдельные заявки; у новых они пусты.
         if (r_artist == 0) & (@8 *r_nart != 0) {
             sb_add(b, "\n\n🆕 Новый художник: <b>");
             sb_html(b, r_nart, 0);
             sb_add(b, "</b>");
-            if s_eq(r_mode, "own") sb_add(b, " (сам автор)");
         }
         if @8 *r_nchars != 0 {
             sb_add(b, "\n🆕 Новые братухи: <b>");
             sb_html(b, l_join(r_nchars), 0);
             sb_add(b, "</b>");
+        }
+        q = qb("SELECT ent_name FROM requests WHERE parent_id = ");
+        sb_int(q, r_id);
+        sb_add(q, " AND status = 'rejected' ORDER BY id");
+        if db_exec(sb_str(q)) {
+            if db_rows() > 0 {
+                sb_add(b, "\n⚠️ Не добавлены (отклонены): ");
+                for i = 0 i < db_rows() i++ {
+                    if i sb_add(b, ", ");
+                    sb_html(b, db_val(i, 0), 0);
+                }
+            }
         }
     } else ent_summary(b);
     if s_eq(r_status, "approved") {
@@ -84,8 +103,17 @@ card_to(rid, admin) {
     auto preview;
     auto mid;
     auto q;
+    auto pid;
 
     if !rq_load(rid) return 0;
+    pid = r_parent;
+    // Заявка выделена из работы: админ сначала видит саму работу (медиа, без подписи).
+    if pid {
+        if rq_load(pid) {
+            if !r_istext() send_work(s_itoa(admin), "");
+        }
+        rq_load(rid);
+    }
     text = card_text();
     // Текст работы уже есть в самой карточке, поэтому отдельный показ нужен только медиа.
     preview = s_eq(r_kind, "work") & !r_istext();
@@ -123,10 +151,12 @@ cards_backlog(admin) {
     auto ids;
     auto n;
     auto i;
+    // Работа, у которой ещё решаются выделенные заявки, уходит админам позже (work_release).
     q = qb("SELECT r.id FROM requests r WHERE r.status = 'pending' AND NOT EXISTS ");
     sb_add(q, "(SELECT 1 FROM cards c WHERE c.request_id = r.id AND c.admin_id = ");
     sb_int(q, admin);
-    sb_add(q, ") ORDER BY r.id LIMIT 20");
+    sb_add(q, ") AND NOT EXISTS (SELECT 1 FROM requests k WHERE k.parent_id = r.id AND k.status = 'pending')");
+    sb_add(q, " ORDER BY r.id LIMIT 20");
     if !db_exec(sb_str(q)) return 0;
     n = db_rows();
     ids = alloc(160);
@@ -168,6 +198,8 @@ cards_refresh(rid) {
 notify_user(rid) {
     auto b;
     if !rq_load(rid) return 0;
+    // Выделенные заявки на художника и братух отправитель не видит: он получит решение по работе.
+    if r_parent return 0;
     b = sb_new();
     if s_eq(r_status, "approved") {
         if s_eq(r_kind, "work") {
@@ -221,17 +253,26 @@ resolve_new(rid) {
     auto names;
 
     if !rq_load(rid) return 0;
+    // Выделенная из работы заявка: одобренный художник становится автором, братуха — в посте.
     if s_eq(r_kind, "artist") {
-        id = artist_add(r_ename, r_eextra, 0);
-        return id != 0;
+        id = artist_add(r_ename, r_eextra);
+        if !id return 0;
+        if r_parent {
+            rq_set_i(r_parent, "artist_id", id);
+            rq_set_s(r_parent, "artist_mode", "list");
+        }
+        return 1;
     }
     if s_eq(r_kind, "character") {
         id = char_add(r_ename, r_eextra);
-        return id != 0;
+        if !id return 0;
+        if r_parent rq_char_add(r_parent, id);
+        return 1;
     }
+    // Заявки на работу, отправленные до выделения новых художника и братух в отдельные
+    // заявки: их добавляем вместе с публикацией, как раньше.
     if (r_artist == 0) & (@8 *r_nart != 0) {
-        if s_eq(r_mode, "own") id = artist_add(r_nart, r_nlink, r_user);
-        else id = artist_add(r_nart, r_nlink, 0);
+        id = artist_add(r_nart, r_nlink);
         if !id return 0;
         rq_set_i(rid, "artist_id", id);
         rq_set_s(rid, "artist_mode", "list");
@@ -246,6 +287,44 @@ resolve_new(rid) {
         rq_char_add(rid, id);
     }
     rq_set_s(rid, "new_chars", "");
+    1;
+}
+
+// Работа уходит админам на проверку, когда решены все выделенные из неё заявки на
+// художника и братух. Проверка и рассылка карточек — в одной транзакции: блокировка
+// строки работы не даёт двум последним решениям разослать карточки дважды.
+work_release(pid) {
+    auto q;
+    auto n;
+    if !pid return 0;
+    if !db_begin() return 0;
+    q = qb("SELECT id FROM requests WHERE id = ");
+    sb_int(q, pid);
+    sb_add(q, " AND status = 'pending' FOR UPDATE");
+    if !db_exec(sb_str(q)) {
+        db_rollback();
+        return 0;
+    }
+    if db_rows() < 1 {
+        db_rollback();
+        return 0;
+    }
+    q = qb("SELECT (SELECT count(*) FROM requests WHERE parent_id = ");
+    sb_int(q, pid);
+    sb_add(q, " AND status = 'pending') + (SELECT count(*) FROM cards WHERE request_id = ");
+    sb_int(q, pid);
+    sb_add(q, ")");
+    if !db_exec(sb_str(q)) {
+        db_rollback();
+        return 0;
+    }
+    n = db_int(0, 0);
+    if n != 0 {
+        db_rollback();
+        return 0;
+    }
+    cards_send(pid);
+    db_commit();
     1;
 }
 
@@ -300,6 +379,7 @@ approve_work(admin, rid) {
 // карточки, например заявка самого админа).
 ent_approve(rid, admin) {
     auto ok;
+    auto pid;
     if !db_begin() return 0;
     if !claim(rid, admin, "approved") {
         db_rollback();
@@ -314,11 +394,14 @@ ent_approve(rid, admin) {
     rq_load(rid);
     if r_user != admin notify_user(rid);
     cards_refresh(rid);
+    pid = r_parent;
+    work_release(pid);
     1;
 }
 
 reject(admin, rid, reason) {
     auto q;
+    auto pid;
     q = qb("UPDATE requests SET status = 'rejected', reason = ");
     sb_lit(q, reason);
     sb_add(q, ", decided_by = ");
@@ -329,6 +412,8 @@ reject(admin, rid, reason) {
     if db_changed() != 1 return 0;
     notify_user(rid);
     cards_refresh(rid);
+    pid = r_parent;
+    work_release(pid);
     1;
 }
 

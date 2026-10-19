@@ -56,12 +56,11 @@ scr_media(uid, fresh) {
 scr_artist(uid, fresh) {
     auto b;
     auto kb;
-    b = qb("🎨 <b>Кто автор?</b>\n\nВыбери художника из списка. Если это твоя работа или автора ещё нет в списке — выбери нужный вариант.\n\nСейчас: ");
+    b = qb("🎨 <b>Кто автор?</b>\n\nВыбери художника из списка — и если это ты, тоже найди себя там. Если автора нет в списке, предложи нового.\n\nСейчас: ");
     sb_add(b, artist_now());
     kb = ja();
     kb_row1(kb, btn_pick("🔎 Выбрать из списка"));
-    kb_row2(kb, btn_cb("🙋 Это моя работа", cbw("own", r_id)), btn_cb("❔ Автор неизвестен", cbw("unk", r_id)));
-    kb_row1(kb, btn_cb("➕ Нет в списке", cbw("anew", r_id)));
+    kb_row2(kb, btn_cb("❔ Автор неизвестен", cbw("unk", r_id)), btn_cb("➕ Нет в списке", cbw("anew", r_id)));
     nav(kb, r_id, artist_set());
     panel_pic(uid, "artist", sb_str(b), kb, fresh);
 }
@@ -69,18 +68,13 @@ scr_artist(uid, fresh) {
 scr_aname(uid, fresh) {
     auto kb;
     kb = ja();
-    if s_eq(r_mode, "own") kb_row1(kb, btn_cb("Использовать моё имя", cbw("useunm", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
-    if s_eq(r_mode, "own") panel_pic(uid, "artist_new", "🙋 <b>Твоя работа</b>\n\nНапиши, как подписать тебя как художника: имя или ник.", kb, fresh);
-    else panel_pic(uid, "artist_new", "➕ <b>Новый художник</b>\n\nНапиши имя или ник художника.", kb, fresh);
+    panel_pic(uid, "artist_new", "➕ <b>Новый художник</b>\n\nНапиши имя или ник художника.", kb, fresh);
 }
 
 scr_alink(uid, fresh) {
     auto kb;
     kb = ja();
-    if s_eq(r_mode, "own") {
-        if @8 *r_uname != 0 kb_row1(kb, btn_cb("Моя ссылка в Telegram", cbs("uselink", r_id)));
-    }
     kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
     panel_pic(uid, "artist_new", "🔗 <b>Ссылка на художника</b>\n\nПришли ссылку на его страницу или соцсеть, либо @ник в Telegram. Можно пропустить.", kb, fresh);

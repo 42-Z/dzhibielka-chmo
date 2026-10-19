@@ -172,7 +172,8 @@ show_mine(uid) {
     auto kind;
     auto st;
     b = sb_new();
-    q = qb("SELECT id, kind, status, reason, channel_link, ent_name FROM requests WHERE status <> 'draft' AND user_id = ");
+    // Выделенные из работ заявки на художника и братух в списке не нужны: о них пишет работа.
+    q = qb("SELECT id, kind, status, reason, channel_link, ent_name FROM requests WHERE status <> 'draft' AND parent_id IS NULL AND user_id = ");
     sb_int(q, uid);
     sb_add(q, " ORDER BY id DESC LIMIT 10");
     sb_add(b, "📋 <b>Мои заявки</b>\n");

@@ -1,16 +1,17 @@
 // post.k: текст поста для канала и отправка работы в Bot API.
 //
 // Пост — подпись пользователя цитатой, затем строки с художником и братухами (метки
-// жирным), хэштеги, (по желанию отправителя) его имя и внизу подпись канала со ссылкой
-// на бота. У текстовой работы сам текст не оформляется цитатой: это не подпись, а
-// содержимое. Лимиты Telegram: подпись к медиа 1024 символа, текст сообщения 4096;
-// считаются в единицах UTF-16, поэтому длину видимого текста (без тегов) ведём отдельно
-// (post_vis), а подпись пользователя обрезаем под остаток.
+// жирным), хэштеги художника и братух, (по желанию отправителя) его имя и внизу подпись
+// канала со ссылкой на бота. У текстовой работы сам текст не оформляется цитатой: это не
+// подпись, а содержимое. Лимиты Telegram: подпись к медиа 1024 символа, текст сообщения
+// 4096; считаются в единицах UTF-16, поэтому длину видимого текста (без тегов) ведём
+// отдельно (post_vis), а подпись пользователя обрезаем под остаток.
 
 post_vis;       // видимая длина строки, которую сейчас собирают
 pm_artist; pm_artist_v;
 pm_chars; pm_chars_v;
-pm_tags; pm_tags_v;
+pm_tags; pm_tags_v;         // хэштеги художника и братух одной строкой или ""
+pm_atags; pm_atags_v;       // только хэштег художника: остаётся, если все не помещаются
 pm_credit; pm_credit_v;
 bot_user;       // имя бота без «@» (getMe) или 0, пока узнать не удалось
 
@@ -76,6 +77,15 @@ pv_link(b, name, link) {
     b;
 }
 
+// Добавляет в строку хэштегов «#tag» (через пробел от прежних); пустой тег пропускается.
+tag_add(tb, tag) {
+    if @8 *tag == 0 return tb;
+    if sb_len(tb) sb_c(tb, ' ');
+    sb_c(tb, '#');
+    sb_add(tb, tag);
+    tb;
+}
+
 // Первый элемент работы (разобранный JSON) или 0.
 post_first(items) {
     if !items return 0;
@@ -91,37 +101,39 @@ post_lines() {
     auto q;
     auto name;
 
-    // художник
+    // художник; хэштеги собираются здесь же, его тег первый
     b = sb_new();
+    tb = sb_new();
     post_vis = 0;
     plabel(b, "🎨", "Художник:");
     if r_artist {
         artist_get(r_artist);
         pv_link(b, ent_name, ent_link);
+        tag_add(tb, artist_tag());
     } else if (@8 *r_mode == 0) | s_eq(r_mode, "unknown") {
         pp(b, "неизвестен");
-    } else pv_link(b, r_nart, r_nlink);
+    } else {
+        pv_link(b, r_nart, r_nlink);
+        tag_add(tb, s_tag(r_nart));
+    }
     pm_artist = sb_str(b);
     pm_artist_v = post_vis;
+    pm_atags = s_dup(sb_str(tb));  // строитель продолжает расти: фиксируем текущее значение
+    pm_atags_v = s_u16(pm_atags);
 
     // братухи из справочника и предложенные новые
     q = qb("SELECT c.name, c.tag FROM request_chars rc JOIN characters c ON c.id = rc.character_id WHERE rc.request_id = ");
     sb_int(q, r_id);
     sb_add(q, " ORDER BY c.name");
     b = sb_new();
-    tb = sb_new();
     post_vis = 0;
     plabel(b, "👥", "Братухи:");
-    sb_add(tb, "#42братухи");
     n = 0;
     if db_exec(sb_str(q)) {
         for i = 0 i < db_rows() i++ {
             if n pp(b, ", ");
             pv(b, db_val(i, 0));
-            if @8 *db_val(i, 1) != 0 {
-                sb_add(tb, " #");
-                sb_add(tb, db_val(i, 1));
-            }
+            tag_add(tb, db_val(i, 1));
             n++;
         }
     }
@@ -129,10 +141,7 @@ post_lines() {
         name = l_get(r_nchars, i);
         if n pp(b, ", ");
         pv(b, name);
-        if @8 *s_tag(name) != 0 {
-            sb_add(tb, " #");
-            sb_add(tb, s_tag(name));
-        }
+        tag_add(tb, s_tag(name));
         n++;
     }
     pm_chars = "";
@@ -162,7 +171,8 @@ post_lines() {
 }
 
 // Текст поста (HTML) для загруженной заявки на работу. limit — максимум видимых
-// символов: подпись пользователя обрезается, при нехватке места убираются хэштеги.
+// символов: подпись пользователя обрезается, при нехватке места сначала убираются
+// хэштеги братух, потом и хэштег художника.
 post_html(limit) {
     auto items;
     auto first;
@@ -172,6 +182,8 @@ post_html(limit) {
     auto room;
     auto is_text;
     auto footer;
+    auto tags;
+    auto tags_v;
 
     post_lines();
     items = json_loads(r_items, 0, 0);
@@ -183,16 +195,20 @@ post_html(limit) {
     json_release(items);
     footer = post_footer();
 
-    // Длина служебных строк (вместе с пустой строкой и подписью внизу); если с полным
-    // списком хэштегов остаётся меньше 40 символов под подпись, оставляем один общий тег.
+    // Длина служебных строк (вместе с пустой строкой и подписью внизу). Все хэштеги нужны,
+    // если под подпись остаётся хотя бы 40 символов; иначе оставляем только хэштег художника,
+    // а если и он не помещается — строки хэштегов нет.
     meta = pm_artist_v + 2 + s_u16("42 Confession | Предложка");
     if pm_chars_v meta = meta + 1 + pm_chars_v;
     if pm_credit_v meta = meta + 1 + pm_credit_v;
-    if meta + 1 + pm_tags_v + 40 > limit {
-        pm_tags = "#42братухи";
-        pm_tags_v = 10;
+    tags = pm_tags;
+    tags_v = pm_tags_v;
+    if meta + 1 + tags_v + 40 > limit {
+        tags = pm_atags;
+        tags_v = pm_atags_v;
     }
-    meta = meta + 1 + pm_tags_v;
+    if meta + 1 + tags_v + 40 > limit tags_v = 0;
+    if tags_v meta = meta + 1 + tags_v;
     room = 0;
     if meta + 2 < limit room = limit - meta - 2;
 
@@ -212,8 +228,10 @@ post_html(limit) {
         sb_c(out, '\n');
         sb_add(out, pm_chars);
     }
-    sb_c(out, '\n');
-    sb_add(out, pm_tags);
+    if tags_v {
+        sb_c(out, '\n');
+        sb_add(out, tags);
+    }
     if pm_credit_v {
         sb_c(out, '\n');
         sb_add(out, pm_credit);

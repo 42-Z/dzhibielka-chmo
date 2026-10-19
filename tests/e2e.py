@@ -581,6 +581,20 @@ def card_of(_c, admin):
     raise AssertionError("у админа %s нет карточки" % admin)
 
 
+def cards_to(admin):
+    """Тексты карточек заявок в чате админа, от старых к новым."""
+    return [m["text"] for (chat, _), m in sorted(WORLD.messages.items(), key=lambda kv: kv[0][1])
+            if chat == str(admin) and m["method"] == "sendMessage" and "Заявка #" in m["text"]]
+
+
+def card_with(_c, admin, needle):
+    """Последняя карточка заявки в чате админа, в тексте которой есть needle."""
+    for (chat, _), m in sorted(WORLD.messages.items(), key=lambda kv: kv[0][1], reverse=True):
+        if chat == str(admin) and m["method"] == "sendMessage" and "Заявка #" in m["text"] and needle in m["text"]:
+            return m
+    raise AssertionError("у админа %s нет карточки с %r" % (admin, needle))
+
+
 @scenario
 def work_flow(c):
     c.start()
@@ -596,7 +610,8 @@ def work_flow(c):
     # выпадающий список художников: служебные пункты и поиск без учёта регистра
     ans = c.inline(USER, "")
     titles = [r["title"] for r in ans["results"]]
-    check("Мария Рисунок" in titles and any("моя работа" in t for t in titles), "список художников: %s" % titles)
+    check("Мария Рисунок" in titles and "❔ Автор неизвестен" in titles and not any("моя работа" in t for t in titles),
+          "список художников: %s" % titles)
     ans = c.inline(USER, "МАРИ")
     titles = [r["title"] for r in ans["results"]]
     check(titles[-1] == "Мария Рисунок" and "Борис" not in titles, "поиск по подстроке: %s" % titles)
@@ -623,11 +638,19 @@ def work_flow(c):
     c.press(USER, "Отправить на проверку")
     check("Заявка отправлена" in c.last_panel(USER)["text"], "подтверждение отправителю")
 
-    # карточка у обоих админов, содержимое видно
+    # новые братухи уходят отдельными заявками с предпросмотром работы; сама работа ждёт их решения
     for admin in (ADMIN1, ADMIN2):
-        card = card_of(c, admin)
-        check("Новый Герой" in card["text"] and "Опубликовать" in " ".join(c.buttons(card)), "карточка админа %d" % admin)
+        for name in ("Новый Герой", "Другой"):
+            card = card_with(c, admin, name)
+            check("Для работы #1" in card["text"] and "Добавить" in " ".join(c.buttons(card)), "карточка братухи %s" % name)
+        check(not any("— работа" in t for t in cards_to(admin)), "работа не ушла до решения братух")
         check(any(b["photo"] == "PH1" for b in c.sent("sendPhoto", admin)), "предпросмотр фото у админа")
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Новый Герой"))
+    check(not any("— работа" in t for t in cards_to(ADMIN2)), "работа ждёт вторую братуху")
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Другой"))
+    for admin in (ADMIN1, ADMIN2):
+        card = card_with(c, admin, "— работа")
+        check("Новый Герой" in card["text"] and "Опубликовать" in " ".join(c.buttons(card)), "карточка работы админа %d" % admin)
 
     # публикация
     c.press(ADMIN1, "Опубликовать")
@@ -635,7 +658,7 @@ def work_flow(c):
     check(len(posts) == 1 and posts[0][0] == "sendPhoto", "один пост в канале: %s" % posts)
     cap = posts[0][1]["caption"]
     for needle in ("Подпись автора", 'href="https://t.me/maria">Мария Рисунок</a>', "Лёнька", "Новый Герой",
-                   "#42братухи", "#Лёнька", "#Новый_Герой", "#Другой", "@vasya"):
+                   "#Мария_Рисунок", "#Лёнька", "#Новый_Герой", "#Другой", "@vasya"):
         check(needle in cap, "в подписи нет %r: %s" % (needle, cap))
     # оформление: метки жирным, подпись автора цитатой, внизу подпись канала со ссылкой на бота
     for needle in ("<b>Художник:</b>", "<b>Братухи:</b>", "<blockquote>Подпись автора</blockquote>"):
@@ -646,8 +669,9 @@ def work_flow(c):
     check(cap.index("@vasya") < cap.index("42 Confession"), "подпись канала после подписи отправителя")
     check(posts[0][1]["parse_mode"] == "HTML" and posts[0][1]["photo"] == "PH1", "параметры поста")
     check(any("опубликована" in t for t in c.texts(USER)), "отправителю пришло уведомление")
-    rows = c.pg.query("SELECT status, decided_by FROM requests")
-    check(rows == [("approved", ADMIN1)], "статус в БД: %s" % rows)
+    check("#42братухи" not in cap, "в посте нет общего хэштега: %s" % cap)
+    rows = c.pg.query("SELECT status, decided_by FROM requests ORDER BY id")
+    check(rows == [("approved", ADMIN1)] * 3, "статус в БД (работа и две братухи): %s" % rows)
     check(c.pg.query("SELECT count(*) FROM characters")[0][0] == 5, "новые братухи внесены в справочник")
     for admin in (ADMIN1, ADMIN2):
         check("✅ Опубликовано" in card_of(c, admin)["text"], "карточка админа %d обновлена" % admin)
@@ -844,6 +868,9 @@ def publish_failure(c):
     c.press(USER, "Пропустить")
     c.press(USER, "Остаться анонимом")
     c.press(USER, "Отправить на проверку")
+    # новички уходят отдельными заявками и добавляются до поста
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Новичок"))
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Совсем Новый"))
     # Ошибки Telegram админ видит по-русски и окном, а не голым «Bad Request».
     causes = [
         ("Bad Request: chat not found", "Бота нет в канале"),
@@ -860,10 +887,10 @@ def publish_failure(c):
         check(WORLD.cb_answers[-1].get("show_alert") is True, "причина показана окном")
         check(len(alert) <= 200, "текст помещается в окно Telegram: %d" % len(alert))
     attempts = len(c.channel_posts())
-    check(c.pg.query("SELECT status FROM requests") == [("pending",)], "заявка осталась в ожидании")
-    check(c.pg.query("SELECT count(*) FROM artists WHERE name = 'Новичок'")[0][0] == 0 and
-          c.pg.query("SELECT count(*) FROM characters WHERE name = 'Совсем Новый'")[0][0] == 0,
-          "новые записи откатились")
+    check(c.pg.query("SELECT status FROM requests WHERE kind = 'work'") == [("pending",)], "работа осталась в ожидании")
+    check(c.pg.query("SELECT count(*) FROM artists WHERE name = 'Новичок'")[0][0] == 1 and
+          c.pg.query("SELECT count(*) FROM characters WHERE name = 'Совсем Новый'")[0][0] == 1,
+          "одобренные добавления остались в справочнике")
     del WORLD.fail["sendPhoto:%d" % CHANNEL]
     press_card(c, ADMIN1, "Опубликовать")
     check(len(c.channel_posts()) == attempts + 1, "после починки пост вышел")
@@ -929,24 +956,26 @@ def own_and_unknown_artist(c):
     c.press(USER, "Предложить работу")
     c.photo(USER)
     c.press(USER, "Дальше")
-    c.press(USER, "Это моя работа")
-    c.press(USER, "Использовать моё имя")
-    c.press(USER, "Моя ссылка")
+    # автора, которого нет в списке, отправитель предлагает сам; «Это моя работа» больше нет
+    c.press(USER, "Нет в списке")
+    c.say(USER, "Вася")
+    c.say(USER, "@vasya")
     check("Кто изображён" in c.last_panel(USER)["text"], "после ссылки идём к братухам")
     c.press(USER, "Дальше")
     c.press(USER, "Пропустить")
     c.press(USER, "Остаться анонимом")
     c.press(USER, "Отправить на проверку")
-    check("сам автор" in card_of(c, ADMIN1)["text"], "админ видит, что автор — отправитель")
+    check("новый художник" in card_of(c, ADMIN1)["text"], "админ сначала рассматривает добавление художника")
+    c.press(ADMIN1, "Добавить", card_of(c, ADMIN1))
     press_card(c, ADMIN1, "Опубликовать")
-    check(c.pg.query("SELECT name, link, tg_id FROM artists WHERE name = 'Вася'") ==
-          [("Вася", "https://t.me/vasya", USER)], "художник привязан к пользователю")
-    # во второй раз «моя работа» выбирает уже существующего художника
+    check(c.pg.query("SELECT name, link FROM artists WHERE name = 'Вася'") ==
+          [("Вася", "https://t.me/vasya")], "художник добавлен в справочник")
+    # во второй раз художник выбирается из списка
     c.say(USER, "/start")
     c.press(USER, "Предложить работу")
     c.photo(USER)
     c.press(USER, "Дальше")
-    c.press(USER, "Это моя работа")
+    c.pick(USER, "Вася")
     check("Вася" in c.last_panel(USER)["text"] and "Кто автор" in c.last_panel(USER)["text"], "автор подставлен")
     c.press(USER, "Автор неизвестен")
     c.press(USER, "Дальше")
@@ -1066,6 +1095,85 @@ def inline_misc(c):
     WORLD.enqueue("inline_query", grp)
     WORLD.settle()
     check(c.inline_answer("iqg")["results"] == [], "в группах список не показывается")
+
+
+@scenario
+def new_entities_split(c):
+    c.start()
+    seed_basic(c)
+    # отправитель предлагает работу с новым художником и новой братухой
+    c.say(USER, "/start")
+    c.press(USER, "Предложить работу")
+    c.photo(USER, "PH7")
+    c.press(USER, "Дальше")
+    c.pick(USER, "➕ Нет в списке")
+    c.say(USER, "Новый Художник")
+    c.say(USER, "@newart")
+    c.press(USER, "Нет в списке")
+    c.say(USER, "Новый Герой")
+    c.press(USER, "Дальше")
+    c.press(USER, "Пропустить")
+    c.press(USER, "Остаться анонимом")
+    c.press(USER, "Отправить на проверку")
+    check(not any("— работа" in t for t in cards_to(ADMIN1)), "работа не уходит, пока не решены новые художник и братуха")
+    check("Для работы #1" in card_with(c, ADMIN1, "Новый Художник")["text"], "художник отдельной заявкой")
+    c.press(ADMIN1, "Добавить", card_with(c, ADMIN1, "Новый Художник"))
+    check(not any("— работа" in t for t in cards_to(ADMIN2)), "работа ждёт братуху")
+    c.press(ADMIN2, "Добавить", card_with(c, ADMIN2, "Новый Герой"))
+    for admin in (ADMIN1, ADMIN2):
+        card = card_with(c, admin, "— работа")
+        check("Новый Художник" in card["text"] and "Новый Герой" in card["text"] and
+              "Опубликовать" in " ".join(c.buttons(card)), "работа ушла админам после решения: %d" % admin)
+    check(c.pg.query("SELECT name, link FROM artists WHERE name = 'Новый Художник'") ==
+          [("Новый Художник", "https://t.me/newart")], "художник добавлен в справочник")
+    check(not any("«Новый" in t for t in c.texts(USER)), "отправитель не получает уведомлений о выделенных заявках")
+    c.press(ADMIN1, "Опубликовать")
+    cap = c.channel_posts()[0][1]["caption"]
+    check('href="https://t.me/newart">Новый Художник</a>' in cap and "#Новый_Художник" in cap and
+          "#Новый_Герой" in cap and "#42братухи" not in cap, "пост с хэштегами художника: %s" % cap)
+
+    # второй пост: художника отклонили — в посте «неизвестен», админ видит, что не добавлено
+    c.say(USER, "/start")
+    c.press(USER, "Предложить работу")
+    c.photo(USER, "PH8")
+    c.press(USER, "Дальше")
+    c.pick(USER, "➕ Нет в списке")
+    c.say(USER, "Левый")
+    c.press(USER, "Пропустить")
+    c.press(USER, "Дальше")
+    c.press(USER, "Пропустить")
+    c.press(USER, "Остаться анонимом")
+    c.press(USER, "Отправить на проверку")
+    press_card(c, ADMIN1, "Отклонить")
+    c.say(ADMIN1, "Не знаю такого")
+    card = card_with(c, ADMIN1, "— работа")
+    check("Не добавлены (отклонены): Левый" in card["text"] and "неизвестен" in card["text"],
+          "отклонённый художник в карточке работы: %s" % card["text"])
+    check(not any("Левый" in t for t in c.texts(USER)), "отказ по выделенной заявке отправителю не приходит")
+    press_card(c, ADMIN2, "Опубликовать")
+    check(len(c.channel_posts()) == 2 and "неизвестен" in c.channel_posts()[1][1]["caption"], "пост без отклонённого художника")
+    c.say(USER, "/start")
+    c.press(USER, "Мои заявки")
+    mine = c.last_panel(USER)["text"]
+    check("#1" in mine and "#4" in mine and "#2" not in mine and "#3" not in mine and "#5" not in mine,
+          "«Мои заявки» без выделенных заявок: %s" % mine)
+
+    # админ сам предлагает работу с новым художником: его заявка решена без проверки
+    c.say(ADMIN2, "/start")
+    c.press(ADMIN2, "Предложить работу")
+    c.photo(ADMIN2, "PH9")
+    c.press(ADMIN2, "Дальше")
+    c.pick(ADMIN2, "➕ Нет в списке")
+    c.say(ADMIN2, "Админов")
+    c.press(ADMIN2, "Пропустить")
+    c.press(ADMIN2, "Дальше")
+    c.press(ADMIN2, "Пропустить")
+    c.press(ADMIN2, "Остаться анонимом")
+    c.press(ADMIN2, "Отправить на проверку")
+    check(c.pg.query("SELECT name FROM artists WHERE name = 'Админов'") == [("Админов",)],
+          "заявка админа на художника решена без проверки")
+    card = card_with(c, ADMIN1, "— работа")
+    check("Админов" in card["text"] and "Опубликовать" in " ".join(c.buttons(card)), "работа админа сразу у админов")
 
 
 def calls(method):

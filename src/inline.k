@@ -54,13 +54,12 @@ on_inline(iq) {
     if s_eq(chat, "group") | s_eq(chat, "supergroup") | s_eq(chat, "channel") return inline_answer(qid, results, "");
 
     if s_eq(u_state, "w_artist") {
-        // Служебные пункты — только на первой порции; «моя работа» и «неизвестен» — пока запрос пуст.
+        // Служебные пункты — только на первой порции; «неизвестен» — пока запрос пуст.
         lim = 50;
         if off == 0 {
             if @8 *key == 0 {
-                jpush(results, inline_item("s1", sp_own(), "Подпишем тебя как художника", sp_own()));
                 jpush(results, inline_item("s2", sp_unk(), "Автор не известен", sp_unk()));
-                lim = 47;
+                lim = 48;
             } else lim = 49;
             jpush(results, inline_item("s3", sp_new(), "Предложить художника, которого нет в списке", sp_new()));
         }

@@ -23,9 +23,12 @@ CREATE TABLE IF NOT EXISTS artists (
     name        text NOT NULL,
     name_key    text NOT NULL UNIQUE,
     link        text NOT NULL DEFAULT '',
-    tg_id       bigint,                        -- Telegram-id, если художник сам прислал свою работу
+    tag         text NOT NULL DEFAULT '',      -- хэштег без «#»; пусто — бот берёт его из имени
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Для баз, созданных до хэштегов художников.
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS tag text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS characters (
     id          bigserial PRIMARY KEY,
@@ -46,8 +49,10 @@ CREATE TABLE IF NOT EXISTS requests (
     -- работа: [{"t": "photo|video|animation|document|text", "f": "<file_id>", "x": "<текст>"}]
     items           jsonb NOT NULL DEFAULT '[]',
     artist_id       bigint REFERENCES artists (id),
-    artist_mode     text NOT NULL DEFAULT '',  -- '', list, own, unknown, new
-    new_artist      text NOT NULL DEFAULT '',  -- предложенный художник (внесётся при одобрении)
+    artist_mode     text NOT NULL DEFAULT '',  -- '', list, unknown, new
+    -- Предложенные новые художник и братухи живут в черновике; при отправке работы каждый
+    -- становится отдельной заявкой (parent_id), а из самой работы они убираются.
+    new_artist      text NOT NULL DEFAULT '',
     new_artist_link text NOT NULL DEFAULT '',
     new_chars       text NOT NULL DEFAULT '',  -- предложенные братухи, по одному в строке
     caption         text NOT NULL DEFAULT '',
@@ -57,12 +62,19 @@ CREATE TABLE IF NOT EXISTS requests (
     note            text NOT NULL DEFAULT '',  -- примечание для админа
     reason          text NOT NULL DEFAULT '',  -- причина отказа
     channel_link    text NOT NULL DEFAULT '',  -- ссылка на опубликованный пост
+    -- заявка на художника/братуху, выделенная из заявки на работу: работа уйдёт админам
+    -- на проверку, когда решены все такие заявки
+    parent_id       bigint REFERENCES requests (id) ON DELETE SET NULL,
     decided_by      bigint,
     created_at      timestamptz NOT NULL DEFAULT now(),
     decided_at      timestamptz
 );
 
+-- Для баз, созданных до раздельного рассмотрения новых художников и братух.
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS parent_id bigint REFERENCES requests (id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS requests_user_idx ON requests (user_id, id DESC);
+CREATE INDEX IF NOT EXISTS requests_parent_idx ON requests (parent_id);
 CREATE INDEX IF NOT EXISTS requests_status_idx ON requests (status);
 
 CREATE TABLE IF NOT EXISTS request_chars (

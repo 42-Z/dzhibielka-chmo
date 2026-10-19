@@ -18,8 +18,9 @@ u_group;          // media_group_id последнего принятого ал
 r_id; r_kind; r_user; r_status; r_items; r_artist; r_mode; r_nart; r_nlink;
 r_nchars; r_caption; r_credit; r_ename; r_eextra; r_note; r_reason; r_link;
 r_uname; r_ufirst;
+r_parent;         // работа, из которой выделена заявка на художника/братуху, или 0
 
-ent_id; ent_name; ent_link; ent_x;  // ent_x: tg_id художника или хэштег братухи
+ent_id; ent_name; ent_link; ent_x;  // ent_x: хэштег (без «#»)
 
 // Строка или значение по умолчанию, если строки нет.
 nz(s, d) {
@@ -184,7 +185,7 @@ rq_load(id) {
     auto q;
     q = qb("SELECT r.id, r.kind, r.user_id, r.status, r.items::text, COALESCE(r.artist_id, 0), r.artist_mode, ");
     sb_add(q, "r.new_artist, r.new_artist_link, r.new_chars, r.caption, r.credit::int, r.ent_name, r.ent_extra, ");
-    sb_add(q, "r.note, r.reason, r.channel_link, u.username, u.first_name ");
+    sb_add(q, "r.note, r.reason, r.channel_link, u.username, u.first_name, COALESCE(r.parent_id, 0) ");
     sb_add(q, "FROM requests r JOIN users u ON u.id = r.user_id WHERE r.id = ");
     sb_int(q, id);
     if !db_exec(sb_str(q)) return 0;
@@ -208,7 +209,28 @@ rq_load(id) {
     r_link = s_dup(db_val(0, 16));
     r_uname = s_dup(db_val(0, 17));
     r_ufirst = s_dup(db_val(0, 18));
+    r_parent = db_int(0, 19);
     1;
+}
+
+// Заявка на художника или братуху (kind: artist, character), выделенная из заявки на
+// работу parent и сразу ожидающая решения админа. extra — ссылка или псевдонимы.
+// Возвращает id или 0.
+rq_child(parent, uid, kind, name, extra) {
+    auto q;
+    q = qb("INSERT INTO requests (kind, user_id, status, ent_name, ent_extra, parent_id) VALUES (");
+    sb_lit(q, kind);
+    sb_add(q, ", ");
+    sb_int(q, uid);
+    sb_add(q, ", 'pending', ");
+    sb_lit(q, name);
+    sb_add(q, ", ");
+    sb_lit(q, extra);
+    sb_add(q, ", ");
+    sb_int(q, parent);
+    sb_add(q, ") RETURNING id");
+    if !db_exec(sb_str(q)) return 0;
+    db_int(0, 0);
 }
 
 // Меняет одну строковую колонку заявки (col — имя из кода, не пользовательский ввод).
@@ -309,7 +331,7 @@ ent_read() {
 
 artist_get(id) {
     auto q;
-    q = qb("SELECT id, name, link, COALESCE(tg_id, 0)::text FROM artists WHERE id = ");
+    q = qb("SELECT id, name, link, tag FROM artists WHERE id = ");
     sb_int(q, id);
     if !db_exec(sb_str(q)) return 0;
     ent_read();
@@ -318,36 +340,33 @@ artist_get(id) {
 // Художник по имени без учёта регистра.
 artist_find(name) {
     auto q;
-    q = qb("SELECT id, name, link, COALESCE(tg_id, 0)::text FROM artists WHERE name_key = ");
+    q = qb("SELECT id, name, link, tag FROM artists WHERE name_key = ");
     sb_lit(q, s_lower(s_trim(name)));
     if !db_exec(sb_str(q)) return 0;
     ent_read();
 }
 
-// Художник, связанный с пользователем Telegram.
-artist_of_user(uid) {
-    auto q;
-    q = qb("SELECT id, name, link, tg_id::text FROM artists WHERE tg_id = ");
-    sb_int(q, uid);
-    if !db_exec(sb_str(q)) return 0;
-    ent_read();
+// Хэштег прочитанного художника: сохранённый, а у записей, созданных до хэштегов, — из имени.
+artist_tag() {
+    if @8 *ent_x != 0 return ent_x;
+    s_tag(ent_name);
 }
 
 // Добавляет художника (или находит с тем же именем); возвращает id, 0 при ошибке.
-artist_add(name, link, tgid) {
+artist_add(name, link) {
     auto q;
     name = s_trim(name);
-    q = qb("INSERT INTO artists (name, name_key, link, tg_id) VALUES (");
+    q = qb("INSERT INTO artists (name, name_key, link, tag) VALUES (");
     sb_lit(q, name);
     sb_add(q, ", ");
     sb_lit(q, s_lower(name));
     sb_add(q, ", ");
     sb_lit(q, link);
-    sb_add(q, ", NULLIF(");
-    sb_int(q, tgid);
-    sb_add(q, ", 0)) ON CONFLICT (name_key) DO UPDATE SET ");
+    sb_add(q, ", ");
+    sb_lit(q, s_tag(name));
+    sb_add(q, ") ON CONFLICT (name_key) DO UPDATE SET ");
     sb_add(q, "link = CASE WHEN artists.link = '' THEN EXCLUDED.link ELSE artists.link END, ");
-    sb_add(q, "tg_id = COALESCE(artists.tg_id, EXCLUDED.tg_id) RETURNING id");
+    sb_add(q, "tag = CASE WHEN artists.tag = '' THEN EXCLUDED.tag ELSE artists.tag END RETURNING id");
     if !db_exec(sb_str(q)) return 0;
     db_int(0, 0);
 }
