@@ -52,7 +52,7 @@ make test
 
 - `src/` — бот, файлы склеиваются Makefile в один исходник (в Kiva нет модулей, порядок файлов не важен): `core.k` — окружение, арена памяти, строки и UTF-8; `json.k` — jansson; `db.k` — libpq; `tg.k` — Bot API; `model.k` — пользователи, заявки, справочники; `post.k` — текст поста и отправка; `ui.k`, `wizard.k` — панель и экраны; `user.k` — сообщения и кнопки пользователей; `admin.k` — проверка заявок; `inline.k` — выпадающий список; `main.k` — цикл `getUpdates`.
 - `sql/schema.sql` — схема БД.
-- `assets/` — шрифт Waoki, генератор баннеров `make_banners.py`, готовые `banners/*.jpg` и описание стиля `STYLE.md`.
+- `assets/` — шрифт Waoki, генератор баннеров `make_banners.py`, готовые `banners/*.jpg`, описание стиля `STYLE.md` и аватарка бота `avatar.jpg` (`make avatar`; ставится через @BotFather `/setuserpic`).
 - `scripts/setup-kiva.sh` — сборка компилятора Kiva; `scripts/run.sh` — запуск с переменными из `.env`.
 - `tests/e2e.py` — сквозной тест.
 

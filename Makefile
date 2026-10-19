@@ -8,7 +8,7 @@ KIVAC  := .kiva/bin/kivac
 KIVAA  := .kiva/bin/kivaa
 LDLIBS := -lcurl -ljansson -lpq
 
-.PHONY: all run test banners clean distclean
+.PHONY: all run test banners avatar clean distclean
 .DELETE_ON_ERROR:
 
 all: $(BIN)
@@ -37,6 +37,10 @@ test: $(BIN)
 # Перерисовывает баннеры из assets/make_banners.py (стиль — assets/STYLE.md).
 banners:
 	uv run --script assets/make_banners.py
+
+# Рисует аватарку бота: assets/avatar.jpg (её ставят через @BotFather /setuserpic или Bot API setMyProfilePhoto).
+avatar:
+	uv run --script assets/make_avatar.py
 
 clean:
 	rm -rf build
