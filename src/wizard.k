@@ -1,4 +1,4 @@
-// wizard.k: экраны мастера заявки на работу и на художника/героя.
+// wizard.k: экраны мастера заявки на работу и на художника/братуху.
 //
 // Мастер работает над одной заявкой (u_req) и один и тот же для отправителя и
 // для админа, который правит чужую заявку: отличается только «куда вернуться»
@@ -25,7 +25,7 @@ artist_now() {
 // Художник выбран (или признан неизвестным)?
 artist_set() (r_artist != 0) | s_eq(r_mode, "unknown") | (@8 *r_nart != 0);
 
-// Подпись кнопки «убрать героя».
+// Подпись кнопки «убрать братуху».
 x_label(name) sb_str(sb_add(qb("✖ "), name));
 
 scr_media(uid, fresh) {
@@ -96,11 +96,11 @@ scr_chars(uid, fresh) {
     auto name;
     auto cnt;
 
-    // Выбранные герои из справочника: читаем целиком до построения кнопок.
+    // Выбранные братухи из справочника: читаем целиком до построения кнопок.
     q = qb("SELECT c.id, c.name FROM request_chars rc JOIN characters c ON c.id = rc.character_id WHERE rc.request_id = ");
     sb_int(q, r_id);
     sb_add(q, " ORDER BY c.name");
-    b = qb("👥 <b>Кто изображён?</b>\n\nВыбирай героев из списка — по одному, до 10. Если героя нет, предложи нового.\n\nВыбрано: ");
+    b = qb("👥 <b>Кто изображён?</b>\n\nВыбирай братух из списка — по одному, до 10. Если братухи нет в списке, предложи нового.\n\nВыбрано: ");
     kb = ja();
     kb_row2(kb, btn_pick("🔎 Выбрать из списка"), btn_cb("➕ Нет в списке", cbw("chnew", r_id)));
     cnt = 0;
@@ -134,7 +134,7 @@ scr_chars(uid, fresh) {
         cnt++;
     }
     if cnt == 0 sb_add(b, "пока никого");
-    else sb_add(b, "\n\nНажми на героя, чтобы убрать его.");
+    else sb_add(b, "\n\nНажми на братуху, чтобы убрать его.");
     nav(kb, r_id, 1);
     panel_pic(uid, "chars", sb_str(b), kb, fresh);
 }
@@ -142,7 +142,7 @@ scr_chars(uid, fresh) {
 scr_cnew(uid, fresh) {
     auto kb;
     kb = jpush(ja(), jpush(ja(), btn_cb("⬅️ Назад", cbs("back", r_id))));
-    panel_pic(uid, "chars_new", "➕ <b>Новые герои</b>\n\nНапиши имена героев, которых нет в списке, через запятую (до 5). Админ проверит и добавит их.", kb, fresh);
+    panel_pic(uid, "chars_new", "➕ <b>Новые братухи</b>\n\nНапиши имена братух, которых нет в списке, через запятую (до 5). Админ проверит и добавит их.", kb, fresh);
 }
 
 scr_caption(uid, fresh) {
@@ -193,21 +193,21 @@ scr_edit(uid, fresh) {
     kb = ja();
     kb_row2(kb, goto_btn("🖼 Содержимое", r_id, "media"), goto_btn("🎨 Художник", r_id, "artist"));
     // У текстовой работы подписи нет: сам текст и есть пост.
-    if r_istext() kb_row1(kb, goto_btn("👥 Герои", r_id, "chars"));
-    else kb_row2(kb, goto_btn("👥 Герои", r_id, "chars"), goto_btn("📝 Подпись", r_id, "caption"));
+    if r_istext() kb_row1(kb, goto_btn("👥 Братухи", r_id, "chars"));
+    else kb_row2(kb, goto_btn("👥 Братухи", r_id, "chars"), goto_btn("📝 Подпись", r_id, "caption"));
     kb_row1(kb, goto_btn("✍️ Подпись отправителя", r_id, "credit"));
     kb_row1(kb, btn_cb("⬅️ К просмотру", cbs("back", r_id)));
     panel_pic(uid, "edit", "✏️ <b>Что изменить?</b>", kb, fresh);
 }
 
-// --- заявка на художника или героя --------------------------------------------
+// --- заявка на художника или братуху ------------------------------------------
 
 ent_title() {
     if s_eq(r_kind, "artist") return "🎨 <b>Новый художник</b>";
-    "👤 <b>Новый герой</b>";
+    "👤 <b>Новый братуха</b>";
 }
 
-// Баннер экранов заявки на художника или героя.
+// Баннер экранов заявки на художника или братуху.
 ent_pic() {
     if s_eq(r_kind, "artist") return "artist_new";
     "chars_new";
@@ -218,7 +218,7 @@ scr_ename(uid, fresh) {
     auto kb;
     b = qb(ent_title());
     if s_eq(r_kind, "artist") sb_add(b, "\n\nНапиши имя или ник художника.");
-    else sb_add(b, "\n\nНапиши имя героя — так, как его будут искать в списке.");
+    else sb_add(b, "\n\nНапиши имя братухи — так, как его будут искать в списке.");
     kb = ja();
     if @8 *u_ret != 0 kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
     else kb_row1(kb, btn_cb("🗑 Отмена", cbw("cancel", r_id)));
@@ -230,7 +230,7 @@ scr_eextra(uid, fresh) {
     auto kb;
     b = qb(ent_title());
     if s_eq(r_kind, "artist") sb_add(b, "\n\nПришли ссылку на страницу или соцсеть художника, либо @ник в Telegram. Можно пропустить.");
-    else sb_add(b, "\n\nНапиши псевдонимы и клички героя через запятую — по ним его тоже найдут в списке. Можно пропустить.");
+    else sb_add(b, "\n\nНапиши псевдонимы и клички братухи через запятую — по ним его тоже найдут в списке. Можно пропустить.");
     kb = ja();
     kb_row1(kb, btn_cb("Пропустить", cbs("skip", r_id)));
     kb_row1(kb, btn_cb("⬅️ Назад", cbs("back", r_id)));
@@ -248,7 +248,7 @@ scr_enote(uid, fresh) {
     panel_pic(uid, ent_pic(), sb_str(b), kb, fresh);
 }
 
-// Описание заявки на художника/героя для экранов и карточек.
+// Описание заявки на художника/братуху для экранов и карточек.
 ent_summary(b) {
     sb_add(b, "Имя: <b>");
     sb_html(b, r_ename, 0);
@@ -297,7 +297,7 @@ scr_afix(uid, fresh) {
     kb = ja();
     if s_eq(r_kind, "work") {
         sb_add(b, post_html(post_limit()));
-        kb_row2(kb, goto_btn("🎨 Художник", r_id, "artist"), goto_btn("👥 Герои", r_id, "chars"));
+        kb_row2(kb, goto_btn("🎨 Художник", r_id, "artist"), goto_btn("👥 Братухи", r_id, "chars"));
         if !r_istext() kb_row1(kb, goto_btn("📝 Подпись", r_id, "caption"));
         if r_credit kb_row1(kb, btn_cb("✍️ Подпись отправителя: да", cbw2("credit", r_id, 0)));
         else kb_row1(kb, btn_cb("✍️ Подпись отправителя: нет", cbw2("credit", r_id, 1)));

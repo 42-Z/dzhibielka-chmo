@@ -24,7 +24,7 @@ card_text() {
     sb_int(b, r_id);
     if s_eq(r_kind, "work") sb_add(b, " — работа</b>\n");
     else if s_eq(r_kind, "artist") sb_add(b, " — новый художник</b>\n");
-    else sb_add(b, " — новый герой</b>\n");
+    else sb_add(b, " — новый братуха</b>\n");
     sb_add(b, "От: <a href=\"tg://user?id=");
     sb_int(b, r_user);
     sb_add(b, "\">");
@@ -44,7 +44,7 @@ card_text() {
             if s_eq(r_mode, "own") sb_add(b, " (сам автор)");
         }
         if @8 *r_nchars != 0 {
-            sb_add(b, "\n🆕 Новые герои: <b>");
+            sb_add(b, "\n🆕 Новые братухи: <b>");
             sb_html(b, l_join(r_nchars), 0);
             sb_add(b, "</b>");
         }
@@ -212,7 +212,7 @@ claim(rid, admin, status) {
     db_changed() == 1;
 }
 
-// Добавляет в справочник художника/героя из заявки; в работе — все предложенные
+// Добавляет в справочник художника/братуху из заявки; в работе — все предложенные
 // записи. Всё в открытой транзакции. Истина, если получилось.
 resolve_new(rid) {
     auto i;
@@ -275,7 +275,7 @@ approve_work(admin, rid) {
     }
     if !resolve_new(rid) {
         db_rollback();
-        return "Не получилось добавить новых художников или героев";
+        return "Не получилось добавить новых художников или братух";
     }
     if !rq_load(rid) {
         db_rollback();
@@ -296,7 +296,7 @@ approve_work(admin, rid) {
     0;
 }
 
-// Добавляет художника/героя из заявки. Истина, если добавлено (auto — решение без
+// Добавляет художника/братуху из заявки. Истина, если добавлено (auto — решение без
 // карточки, например заявка самого админа).
 ent_approve(rid, admin) {
     auto ok;

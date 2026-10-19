@@ -49,11 +49,11 @@ CREATE TABLE IF NOT EXISTS requests (
     artist_mode     text NOT NULL DEFAULT '',  -- '', list, own, unknown, new
     new_artist      text NOT NULL DEFAULT '',  -- предложенный художник (внесётся при одобрении)
     new_artist_link text NOT NULL DEFAULT '',
-    new_chars       text NOT NULL DEFAULT '',  -- предложенные герои, по одному в строке
+    new_chars       text NOT NULL DEFAULT '',  -- предложенные братухи, по одному в строке
     caption         text NOT NULL DEFAULT '',
     credit          boolean NOT NULL DEFAULT false,  -- подписать отправителя в посте
-    ent_name        text NOT NULL DEFAULT '',  -- заявка на художника/героя: имя
-    ent_extra       text NOT NULL DEFAULT '',  -- ссылка (художник) или псевдонимы (герой)
+    ent_name        text NOT NULL DEFAULT '',  -- заявка на художника/братуху: имя
+    ent_extra       text NOT NULL DEFAULT '',  -- ссылка (художник) или псевдонимы (братуха)
     note            text NOT NULL DEFAULT '',  -- примечание для админа
     reason          text NOT NULL DEFAULT '',  -- причина отказа
     channel_link    text NOT NULL DEFAULT '',  -- ссылка на опубликованный пост

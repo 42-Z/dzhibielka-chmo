@@ -12,6 +12,9 @@
 /core
 /core.[0-9]*
 
+# Кэш Python от скриптов в assets/ и tests/
+__pycache__/
+
 # Редакторы и ОС
 .vscode/
 .idea/

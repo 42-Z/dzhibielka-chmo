@@ -1,4 +1,4 @@
-// model.k: настройки, пользователи, заявки, художники и герои.
+// model.k: настройки, пользователи, заявки, художники и братухи.
 //
 // «Текущая заявка» и «текущая запись справочника» живут в глобальных переменных
 // r_* и ent_*: rq_load/artist_get/... заполняют их, строки копируются на арену.
@@ -19,7 +19,7 @@ r_id; r_kind; r_user; r_status; r_items; r_artist; r_mode; r_nart; r_nlink;
 r_nchars; r_caption; r_credit; r_ename; r_eextra; r_note; r_reason; r_link;
 r_uname; r_ufirst;
 
-ent_id; ent_name; ent_link; ent_x;  // ent_x: tg_id художника или хэштег героя
+ent_id; ent_name; ent_link; ent_x;  // ent_x: tg_id художника или хэштег братухи
 
 // Строка или значение по умолчанию, если строки нет.
 nz(s, d) {
@@ -287,7 +287,7 @@ rq_char_del(id, cid) {
     db_exec(sb_str(q));
 }
 
-// Сколько героев выбрано (из справочника и предложенных новых).
+// Сколько братух выбрано (из справочника и предложенных новых).
 rq_char_count(id) {
     auto q;
     q = qb("SELECT count(*) FROM request_chars WHERE request_id = ");
@@ -368,7 +368,7 @@ char_find(name) {
     ent_read();
 }
 
-// Добавляет героя (или находит с тем же именем); возвращает id, 0 при ошибке.
+// Добавляет братуху (или находит с тем же именем); возвращает id, 0 при ошибке.
 char_add(name, aliases) {
     auto q;
     auto key;

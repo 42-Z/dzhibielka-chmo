@@ -549,7 +549,7 @@ def admin_busy_and_race(c):
     new_work(c)
     # админ занят своей заявкой: чужие «Отклонить» и «Исправить» не затирают её
     c.say(ADMIN1, "/start")
-    c.press(ADMIN1, "Предложить героя")
+    c.press(ADMIN1, "Предложить братуху")
     c.say(ADMIN1, "Черновик Админа")
     for text in ("Отклонить", "Исправить"):
         press_card(c, ADMIN1, text)
@@ -602,16 +602,16 @@ def work_flow(c):
     check("Мария Рисунок" in c.last_panel(USER)["text"], "художник выбран")
     c.press(USER, "Дальше")
 
-    # герои: поиск по псевдониму, выбор, новый герой
+    # братухи: поиск по псевдониму, выбор, новый братуха
     ans = c.inline(USER, "ЛЁНЕЧ")
     check([r["title"] for r in ans["results"] if not r["id"].startswith("s")] == ["Лёнька"], "поиск по псевдониму")
     c.pick(USER, "Лёнька")
-    check("Лёнька" in c.last_panel(USER)["text"], "герой выбран")
+    check("Лёнька" in c.last_panel(USER)["text"], "братуха выбран")
     ans = c.inline(USER, "")
-    check("Лёнька" not in [r["title"] for r in ans["results"]], "выбранный герой скрыт из списка")
+    check("Лёнька" not in [r["title"] for r in ans["results"]], "выбранный братуха скрыт из списка")
     c.press(USER, "Нет в списке")
     c.say(USER, "Новый Герой, Другой")
-    check("Новый Герой" in c.last_panel(USER)["text"], "новые герои в панели")
+    check("Новый Герой" in c.last_panel(USER)["text"], "новые братухи в панели")
     c.press(USER, "Дальше")
     check("Подпись" in c.last_panel(USER)["text"], "экран подписи")
     c.press(USER, "Оставить")
@@ -639,7 +639,7 @@ def work_flow(c):
     check(any("опубликована" in t for t in c.texts(USER)), "отправителю пришло уведомление")
     rows = c.pg.query("SELECT status, decided_by FROM requests")
     check(rows == [("approved", ADMIN1)], "статус в БД: %s" % rows)
-    check(c.pg.query("SELECT count(*) FROM characters")[0][0] == 5, "новые герои внесены в справочник")
+    check(c.pg.query("SELECT count(*) FROM characters")[0][0] == 5, "новые братухи внесены в справочник")
     for admin in (ADMIN1, ADMIN2):
         check("✅ Опубликовано" in card_of(c, admin)["text"], "карточка админа %d обновлена" % admin)
 
@@ -783,8 +783,8 @@ def admin_fix(c):
     c.press(ADMIN1, "Художник")
     c.pick(ADMIN1, "Борис")
     c.press(ADMIN1, "Готово")
-    c.press(ADMIN1, "Герои")
-    c.press(ADMIN1, "Лёнька")  # убрать выбранного героя
+    c.press(ADMIN1, "Братухи")
+    c.press(ADMIN1, "Лёнька")  # убрать выбранного братуху
     c.press(ADMIN1, "Готово")
     c.press(ADMIN1, "Подпись отправителя")
     c.press(ADMIN1, "Готово")
@@ -857,7 +857,7 @@ def publish_failure(c):
     check(len(c.channel_posts()) == attempts + 1, "после починки пост вышел")
     check(c.pg.query("SELECT name, link FROM artists WHERE name = 'Новичок'") == [("Новичок", "https://vk.com/novichok")],
           "художник внесён со ссылкой")
-    check(c.pg.query("SELECT count(*) FROM request_chars")[0][0] == 1, "новый герой привязан к заявке")
+    check(c.pg.query("SELECT count(*) FROM request_chars")[0][0] == 1, "новый братуха привязан к заявке")
     cap = c.channel_posts()[0][1]["caption"]
     check('href="https://vk.com/novichok">Новичок</a>' in cap and "#Совсем_Новый" in cap, "в посте новые данные: %s" % cap)
 
@@ -886,9 +886,9 @@ def entity_requests(c):
     check(c.pg.query("SELECT name, link FROM artists WHERE name = 'Новая Художница'") ==
           [("Новая Художница", "https://t.me/art_girl")], "художник в справочнике")
     check(any("добавлен" in t for t in c.texts(USER)), "отправитель уведомлён")
-    # герой с псевдонимами, затем он находится по псевдониму
+    # братуха с псевдонимами, затем он находится по псевдониму
     c.say(USER, "/start")
-    c.press(USER, "Предложить героя")
+    c.press(USER, "Предложить братуху")
     c.say(USER, "Дядя Миша")
     c.say(USER, "михалыч, дядь миш")
     c.press(USER, "Пропустить")
@@ -899,12 +899,12 @@ def entity_requests(c):
     # админ добавляет без проверки
     n_cards = len([1 for (mt, b) in WORLD.calls if mt == "sendMessage" and b["chat_id"] == ADMIN1 and "Заявка #" in b["text"]])
     c.say(ADMIN1, "/start")
-    c.press(ADMIN1, "Предложить героя")
-    c.say(ADMIN1, "Герой Админа")
+    c.press(ADMIN1, "Предложить братуху")
+    c.say(ADMIN1, "Братуха Админа")
     c.press(ADMIN1, "Пропустить")
     c.press(ADMIN1, "Пропустить")
     c.press(ADMIN1, "Отправить на проверку")
-    check(c.pg.query("SELECT count(*) FROM characters WHERE name = 'Герой Админа'")[0][0] == 1, "автоодобрение админа")
+    check(c.pg.query("SELECT count(*) FROM characters WHERE name = 'Братуха Админа'")[0][0] == 1, "автоодобрение админа")
     n_after = len([1 for (mt, b) in WORLD.calls if mt == "sendMessage" and b["chat_id"] == ADMIN1 and "Заявка #" in b["text"]])
     check(n_after == n_cards, "карточка для автоодобренной заявки не рассылается")
 
@@ -920,7 +920,7 @@ def own_and_unknown_artist(c):
     c.press(USER, "Это моя работа")
     c.press(USER, "Использовать моё имя")
     c.press(USER, "Моя ссылка")
-    check("Кто изображён" in c.last_panel(USER)["text"], "после ссылки идём к героям")
+    check("Кто изображён" in c.last_panel(USER)["text"], "после ссылки идём к братухам")
     c.press(USER, "Дальше")
     c.press(USER, "Пропустить")
     c.press(USER, "Остаться анонимом")
@@ -1031,7 +1031,7 @@ def restart_midway(c):
 @scenario
 def inline_misc(c):
     c.start()
-    c.seed(characters=[("Герой %02d" % i, "") for i in range(60)])
+    c.seed(characters=[("Братуха %02d" % i, "") for i in range(60)])
     ans = c.inline(USER, "")
     check([r["title"] for r in ans["results"]] == ["Сначала открой меню бота"], "без шага — подсказка")
     c.pick(USER, "/start")
@@ -1043,7 +1043,7 @@ def inline_misc(c):
     c.pick(USER, "➕ Нет в списке")
     c.say(USER, "Х")
     c.press(USER, "Пропустить")
-    check("Кто изображён" in c.last_panel(USER)["text"], "переход к героям")
+    check("Кто изображён" in c.last_panel(USER)["text"], "переход к братухам")
     first = c.inline(USER, "")
     check(len(first["results"]) == 50 and first["next_offset"] == "49", "первая порция: %d, next=%r" %
           (len(first["results"]), first.get("next_offset")))
@@ -1095,7 +1095,7 @@ def banners(c):
     edits = len(calls("editMessageCaption"))
     c.press(USER, "✖ Лёнька")
     after = c.last_panel(USER)
-    check(after["id"] == before["id"] and after["banner"] == "chars", "баннер героев остался")
+    check(after["id"] == before["id"] and after["banner"] == "chars", "баннер братух остался")
     check(len(calls("editMessageCaption")) == edits + 1 and "пока никого" in after["text"], "правка подписи без картинки")
 
     # просмотр поста — без баннера: панель из фото становится текстом и обратно

@@ -86,7 +86,7 @@ cancel_draft(uid, rid, fresh) {
 
 back_step(uid) {
     auto to;
-    // Подшаги художника и героев возвращают на предыдущий экран, а не из правки.
+    // Подшаги художника и братух возвращают на предыдущий экран, а не из правки.
     if (s_eq(u_state, "w_aname") | s_eq(u_state, "w_alink") | s_eq(u_state, "w_cnew")) {
         u_set(uid, st_prev(), u_req, u_ret);
         return show_step(uid, 0);
@@ -296,7 +296,7 @@ on_wizard(uid, cbid, data) {
 
 // --- выбор из списка -----------------------------------------------------------
 
-// Выбор художника или героя: сообщением из выпадающего списка (via_bot) либо
+// Выбор художника или братухи: сообщением из выпадающего списка (via_bot) либо
 // набранным вручную именем. fresh — показать панель заново внизу чата.
 on_pick(uid, text, fresh) {
     auto cnt;
@@ -345,12 +345,12 @@ on_pick(uid, text, fresh) {
             return show_step(uid, fresh);
         }
         if !char_find(text) {
-            reply(uid, "Не нашёл такого героя. Выбери из списка кнопкой «🔎 Выбрать из списка» или нажми «➕ Нет в списке».");
+            reply(uid, "Не нашёл такого братуху. Выбери из списка кнопкой «🔎 Выбрать из списка» или нажми «➕ Нет в списке».");
             return 0;
         }
         cnt = rq_char_count(rid) + l_count(r_nchars);
         if cnt >= 10 {
-            reply(uid, "Больше десяти героев в одном посте не нужно.");
+            reply(uid, "Больше десяти братух в одном посте не нужно.");
             return 0;
         }
         rq_char_add(rid, ent_id);
@@ -539,7 +539,7 @@ in_text(uid, text) {
         if @8 *name == 0 return reply(uid, "Напиши имя.");
         if s_eq(r_kind, "artist") {
             if artist_find(name) return reply(uid, "Такой художник уже есть в списке.");
-        } else if char_find(name) return reply(uid, "Такой герой уже есть в списке.");
+        } else if char_find(name) return reply(uid, "Такой братуха уже есть в списке.");
         rq_set_s(rid, "ent_name", name);
         return leave(uid, 1);
     }
