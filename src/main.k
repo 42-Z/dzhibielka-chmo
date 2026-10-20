@@ -41,15 +41,16 @@ main() {
         return 1;
     }
     arena_init();
-    if !tg_init(token, env_or("TELEGRAM_API_URL", "https://api.telegram.org")) {
+    if !tg_init(token) {
         fprintf(stderr, "Не удалось инициализировать libcurl\n");
         return 1;
     }
     bot_name();  // ник бота нужен для ссылки в подписи постов; ошибка (например, токена) попадёт в журнал
-    tg_pics = env_or("BANNERS_DIR", "assets/banners");
+    // Каталог баннеров и файл схемы постоянные, относительно каталога запуска.
+    tg_pics = "assets/banners";
     if !pic_exists("menu") fprintf(stderr, "В %s нет баннеров — экраны будут без картинок\n", tg_pics);
     if !db_connect(need_env("DATABASE_URL")) return 1;
-    if !db_schema(env_or("SCHEMA_FILE", "sql/schema.sql")) return 1;
+    if !db_schema("sql/schema.sql") return 1;
     nav_dirty = 1;  // после перезапуска сверяем навигационный пост со справочником
     nav_flush();
 

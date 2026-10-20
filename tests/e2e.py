@@ -8,7 +8,8 @@
 бинарник бота и проводит через него сценарии: пользователь шлёт сообщения и жмёт
 кнопки, тест сверяет вызовы Bot API и состояние БД.
 
-    uv run --script tests/e2e.py build/tgbot [имя_сценария ...]
+    make test
+    uv run --script tests/e2e.py [имя_сценария ...]
 
 Postgres берётся из TEST_DATABASE_URL, иначе поднимается временный в Docker.
 Между сценариями схема БД пересоздаётся.
@@ -16,6 +17,7 @@ Postgres берётся из TEST_DATABASE_URL, иначе поднимаетс�
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,11 +32,12 @@ from typing import cast
 
 import psycopg
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOKEN = "123456:TEST"
 CHANNEL = -1001234567890
 ADMIN1, ADMIN2 = 1001, 1002
 USER, USER2 = 2001, 2002
-SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sql", "schema.sql")
+SCHEMA = os.path.join(ROOT, "sql", "schema.sql")
 
 PEOPLE = {
     ADMIN1: ("Админ", "admin_one"),
@@ -281,13 +284,12 @@ class FakeBotApi(BaseHTTPRequestHandler):
 # --- процесс бота и БД ----------------------------------------------------------
 
 class Bot:
-    def __init__(self, binary, env):
-        full = {k: v for k, v in os.environ.items() if not k.lower().endswith("_proxy")}
+    def __init__(self, binary, env, cwd=ROOT):
+        full = dict(os.environ)
         for k in ("BOT_TOKEN", "DATABASE_URL", "ADMIN_IDS", "CHANNEL_ID"):
             full.pop(k, None)
         full.update(env)
-        self.proc = subprocess.Popen([binary], env=full, stderr=subprocess.PIPE, text=True,
-                                     cwd=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        self.proc = subprocess.Popen([binary], env=full, stderr=subprocess.PIPE, text=True, cwd=cwd)
         self.log = []
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
@@ -363,22 +365,17 @@ class Ctx:
 
     def __init__(self, binary, pg):
         self.binary, self.pg = binary, pg
-        self.api_url = None
         self.bot = None
 
-    def start(self, **env_over):
+    def start(self, cwd=None):
         env = {
             "BOT_TOKEN": TOKEN,
-            "TELEGRAM_API_URL": self.api_url,
             "DATABASE_URL": self.pg.url,
             "ADMIN_IDS": "%d,%d" % (ADMIN1, ADMIN2),
             "CHANNEL_ID": str(CHANNEL),
         }
-        env.update(env_over)
-        env = {k: v for k, v in env.items() if v is not None}
-        self.bot = Bot(self.binary, env)
-        if not env_over:
-            check(self.bot.wait_log("Бот запущен", 10), "бот не запустился: %s" % self.bot.log)
+        self.bot = Bot(self.binary, env, cwd or ROOT)
+        check(self.bot.wait_log("Бот запущен", 10), "бот не запустился: %s" % self.bot.log)
         return self.bot
 
     def restart(self):
@@ -707,7 +704,7 @@ def new_work(c, uid=USER, photos=("PH1",), artist="Мария Рисунок", c
 
 @scenario
 def startup_errors(c):
-    base = {"BOT_TOKEN": TOKEN, "TELEGRAM_API_URL": c.api_url, "DATABASE_URL": c.pg.url,
+    base = {"BOT_TOKEN": TOKEN, "DATABASE_URL": c.pg.url,
             "ADMIN_IDS": "1001", "CHANNEL_ID": "@chan"}
     for name in ("BOT_TOKEN", "DATABASE_URL", "ADMIN_IDS", "CHANNEL_ID"):
         env = {k: v for k, v in base.items() if k != name}
@@ -1268,16 +1265,20 @@ def banner_recovery(c):
 
 @scenario
 def banners_missing(c):
-    empty = tempfile.mkdtemp()
-    c.start(BANNERS_DIR=empty)
-    check(c.bot.wait_log("нет баннеров", 10) and c.bot.wait_log("Бот запущен", 10), "предупреждение при старте: %s" % c.bot.log)
-    c.say(USER, "/start")
-    menu = c.last_panel(USER)
-    check(menu["method"] == "sendMessage" and not menu["banner"] and "Что делаем" in menu["text"],
-          "без файлов экран приходит обычным текстом")
-    c.press(USER, "Предложить работу")
-    check("Новая работа" in c.last_panel(USER)["text"] and len(c.panels(USER)) == 1, "мастер работает без баннеров")
-    check(WORLD.uploads == [], "ничего не загружалось")
+    # Каталог баннеров постоянный и относительный, поэтому «нет файлов» — это запуск
+    # из каталога, где лежит только схема БД.
+    with tempfile.TemporaryDirectory() as empty:
+        os.makedirs(os.path.join(empty, "sql"))
+        shutil.copy(SCHEMA, os.path.join(empty, "sql", "schema.sql"))
+        c.start(cwd=empty)
+        check(c.bot.wait_log("нет баннеров", 10) and c.bot.wait_log("Бот запущен", 10), "предупреждение при старте: %s" % c.bot.log)
+        c.say(USER, "/start")
+        menu = c.last_panel(USER)
+        check(menu["method"] == "sendMessage" and not menu["banner"] and "Что делаем" in menu["text"],
+              "без файлов экран приходит обычным текстом")
+        c.press(USER, "Предложить работу")
+        check("Новая работа" in c.last_panel(USER)["text"] and len(c.panels(USER)) == 1, "мастер работает без баннеров")
+        check(WORLD.uploads == [], "ничего не загружалось")
 
 
 def nav_messages():
@@ -1366,21 +1367,31 @@ def nav_post(c):
     check(c.pg.query("SELECT count(*) FROM nav_posts")[0][0] == 0, "записей о посте нет")
 
 
+def test_binary(api_url):
+    """Собирает копию бота, которая ходит в поддельный Bot API вместо настоящего."""
+    env = dict(os.environ)
+    env.pop("MAKEFLAGS", None)  # make внутри make иначе ругается на jobserver
+    env.pop("MFLAGS", None)
+    subprocess.run(["make", "-s", "build/tgbot-test", "API_URL=" + api_url],
+                   cwd=ROOT, env=env, check=True)
+    return os.path.join(ROOT, "build", "tgbot-test")
+
+
 def main():
-    binary = sys.argv[1]
-    only = set(sys.argv[2:])
+    only = set(sys.argv[1:])
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakeBotApi)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    pg = Postgres()
+    pg = None
     failures = []
     try:
+        binary = test_binary("http://127.0.0.1:%d" % server.server_address[1])
+        pg = Postgres()
         for fn in SCENARIOS:
             if only and fn.__name__ not in only:
                 continue
             WORLD.reset()
             pg.reset()
             c = Ctx(binary, pg)
-            c.api_url = "http://127.0.0.1:%d" % server.server_address[1]
             try:
                 fn(c)
                 print("ok    " + fn.__name__)
@@ -1405,7 +1416,8 @@ def main():
                     c.bot.stop()
     finally:
         server.shutdown()
-        pg.close()
+        if pg:
+            pg.close()
     if failures:
         sys.exit("Не прошло сценариев: %d (%s)" % (len(failures), ", ".join(failures)))
     print("Все сценарии прошли")

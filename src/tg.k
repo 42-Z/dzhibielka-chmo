@@ -6,13 +6,13 @@
 
 tg_curl;      // дескриптор libcurl: один на все запросы, соединение переиспользуется
 tg_token;     // токен бота (BOT_TOKEN)
-tg_base;      // адрес Bot API (TELEGRAM_API_URL)
+tg_base;      // адрес Bot API: постоянный, из окружения не берётся
 tg_hdr;       // список заголовков с Content-Type: application/json
 tg_last_err;  // описание последней ошибки Telegram (строка на арене, или 0)
 
-tg_init(token, base) {
+tg_init(token) {
     tg_token = token;
-    tg_base = base;
+    tg_base = "https://api.telegram.org";
     curl_global_init(3);  // CURL_GLOBAL_DEFAULT
     tg_curl = curl_easy_init();
     tg_hdr = curl_slist_append(0, "Content-Type: application/json");
@@ -62,6 +62,8 @@ tg_run(method, body, mime, timeout) {
     curl_easy_setopt(tg_curl, 10001, out);          // CURLOPT_WRITEDATA: без WRITEFUNCTION libcurl пишет в FILE* через fwrite
     curl_easy_setopt(tg_curl, 78, 10);              // CURLOPT_CONNECTTIMEOUT
     curl_easy_setopt(tg_curl, 13, timeout);         // CURLOPT_TIMEOUT
+    // Прокси не настраивается: пустая строка отключает прокси из окружения (all_proxy и т. п.).
+    curl_easy_setopt(tg_curl, 10004, "");           // CURLOPT_PROXY
     rc = curl_easy_perform(tg_curl) & 0xFFFFFFFF;
     fclose(out);  // фиксирует размер и завершающий нуль в resp
     if mime curl_mime_free(mime);
@@ -215,13 +217,13 @@ tg_alert(cbid, text) {
 
 // --- баннеры -------------------------------------------------------------------
 //
-// Баннер — картинка <BANNERS_DIR>/<имя>.jpg над текстом сообщения, то есть фото с
+// Баннер — картинка assets/banners/<имя>.jpg над текстом сообщения, то есть фото с
 // подписью (до 1024 символов). Первый раз файл уходит в Telegram формой multipart, в
 // ответе приходит file_id; он хранится в памяти до перезапуска, и дальше баннер
 // отправляется по file_id обычным JSON-запросом. Функции ниже клавиатуру (markup)
 // только читают: она остаётся у вызывающего, который её и освобождает.
 
-tg_pics;        // каталог с баннерами (BANNERS_DIR)
+tg_pics;        // каталог с баннерами: постоянный, из окружения не берётся
 bn_name[32];    // имена уже загруженных баннеров
 bn_fid[32];     // их file_id (0 — Telegram перестал его принимать)
 bn_n;
